@@ -1,0 +1,59 @@
+"""Load bootstrap JSON written by Conductor Node."""
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+@dataclass(frozen=True)
+class BrokerBootstrap:
+    adapter: str
+    config: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class StrategyBootstrap:
+    module: str
+    class_name: str
+    config_class: str
+
+
+@dataclass(frozen=True)
+class TradingNodeBootstrap:
+    node_id: str
+    user_id: str
+    trader_id: str
+    control_host: str
+    control_port: int
+    broker: BrokerBootstrap
+    strategy: StrategyBootstrap
+
+
+def load_bootstrap() -> TradingNodeBootstrap:
+    path = os.getenv("CONDUCTOR_BOOTSTRAP")
+    if not path:
+        raise SystemExit("CONDUCTOR_BOOTSTRAP env var is required")
+
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    broker = data["broker"]
+    strategy = data["strategy"]
+
+    return TradingNodeBootstrap(
+        node_id=str(data["node_id"]),
+        user_id=str(data["user_id"]),
+        trader_id=str(data["trader_id"]),
+        control_host=str(data["control_host"]),
+        control_port=int(data["control_port"]),
+        broker=BrokerBootstrap(
+            adapter=str(broker["adapter"]),
+            config=dict(broker["config"]),
+        ),
+        strategy=StrategyBootstrap(
+            module=str(strategy["module"]),
+            class_name=str(strategy["class_name"]),
+            config_class=str(strategy["config_class"]),
+        ),
+    )
