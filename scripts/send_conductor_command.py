@@ -3,7 +3,7 @@
 Send commands to Conductor Node via Redis (temporary — API will replace this).
 
 The deploy command must be complete: broker.adapter + full broker.config + strategy.
-Conductor does not allocate broker credentials or IBKR client ids.
+Conductor does not allocate broker credentials.
 
 Examples (from repo root):
 
@@ -30,8 +30,64 @@ from conductor_node.settings import EVENTS_KEY
 from shared.env import load_env_file
 
 
-def _build_deploy_command(args: argparse.Namespace) -> dict:
-    """Build a complete standardized deploy command (client fills broker config)."""
+def _strategy_block(args: argparse.Namespace) -> dict:
+    return {
+        "module": args.strategy_module or "strategies.running_ping",
+        "class_name": args.strategy_class or "RunningPing",
+        "config_class": args.strategy_config_class or "RunningPingConfig",
+    }
+
+
+def _bybit_credentials(environment: str) -> tuple[str, str]:
+    env = environment.lower()
+    if env == "testnet":
+        api_key = os.getenv("BYBIT_TESTNET_API_KEY") or os.getenv("BYBIT_API_KEY")
+        api_secret = os.getenv("BYBIT_TESTNET_API_SECRET") or os.getenv("BYBIT_API_SECRET")
+    elif env == "demo":
+        api_key = os.getenv("BYBIT_DEMO_API_KEY") or os.getenv("BYBIT_API_KEY")
+        api_secret = os.getenv("BYBIT_DEMO_API_SECRET") or os.getenv("BYBIT_API_SECRET")
+    else:
+        api_key = os.getenv("BYBIT_API_KEY")
+        api_secret = os.getenv("BYBIT_API_SECRET")
+    return api_key or "", api_secret or ""
+
+
+def _build_bybit_deploy_payload(args: argparse.Namespace) -> dict:
+    environment = args.bybit_environment or os.getenv("BYBIT_ENVIRONMENT", "testnet")
+    api_key = args.bybit_api_key or _bybit_credentials(environment)[0]
+    api_secret = args.bybit_api_secret or _bybit_credentials(environment)[1]
+    if not api_key or not api_secret:
+        raise SystemExit(
+            "Bybit API credentials required "
+            "(--bybit-api-key/--bybit-api-secret or BYBIT_TESTNET_API_KEY/SECRET in .env)",
+        )
+
+    product_type = args.bybit_product_type or os.getenv("BYBIT_PRODUCT_TYPE", "linear")
+    symbol = args.bybit_symbol or os.getenv("BYBIT_SYMBOL", "BTCUSDT")
+    instrument_id = args.bybit_instrument_id or os.getenv(
+        "BYBIT_INSTRUMENT_ID",
+        f"{symbol}-{product_type.upper()}.BYBIT",
+    )
+
+    payload: dict = {
+        "broker": {
+            "adapter": "bybit",
+            "config": {
+                "api_key": api_key,
+                "api_secret": api_secret,
+                "environment": environment,
+                "product_types": [product_type],
+                "instrument_ids": [instrument_id],
+            },
+        },
+        "strategy": _strategy_block(args),
+    }
+    if args.control_port is not None:
+        payload["control_port"] = args.control_port
+    return payload
+
+
+def _build_ibkr_deploy_payload(args: argparse.Namespace) -> dict:
     account_id = args.account_id or os.getenv("TWS_ACCOUNT")
     if not account_id:
         raise SystemExit("account_id required (--account-id or TWS_ACCOUNT in .env)")
@@ -43,10 +99,6 @@ def _build_deploy_command(args: argparse.Namespace) -> dict:
         if args.ib_client_id is not None
         else int(os.getenv("IB_CLIENT_ID", "20"))
     )
-
-    strategy_module = args.strategy_module or "strategies.running_ping"
-    strategy_class = args.strategy_class or "RunningPing"
-    strategy_config_class = args.strategy_config_class or "RunningPingConfig"
 
     if args.ib_symbol:
         load_contracts = [
@@ -62,8 +114,6 @@ def _build_deploy_command(args: argparse.Namespace) -> dict:
             {"secType": "STK", "symbol": "AAPL", "exchange": "SMART", "currency": "USD"},
         ]
 
-    # Standardized deploy shape. For interactive_brokers, config must include
-    # everything trading_node/brokers/interactive_brokers.py needs.
     payload: dict = {
         "broker": {
             "adapter": "interactive_brokers",
@@ -75,15 +125,21 @@ def _build_deploy_command(args: argparse.Namespace) -> dict:
                 "load_contracts": load_contracts,
             },
         },
-        "strategy": {
-            "module": strategy_module,
-            "class_name": strategy_class,
-            "config_class": strategy_config_class,
-        },
+        "strategy": _strategy_block(args),
     }
-
     if args.control_port is not None:
         payload["control_port"] = args.control_port
+    return payload
+
+
+def _build_deploy_command(args: argparse.Namespace) -> dict:
+    broker = (args.broker or os.getenv("BROKER_ADAPTER", "bybit")).strip().lower()
+    if broker == "bybit":
+        payload = _build_bybit_deploy_payload(args)
+    elif broker in ("interactive_brokers", "ibkr"):
+        payload = _build_ibkr_deploy_payload(args)
+    else:
+        raise SystemExit(f"unsupported broker '{broker}' (use bybit or interactive_brokers)")
 
     cmd = {
         "command": "deploy",
@@ -106,6 +162,19 @@ def main() -> None:
     deploy.add_argument("--user-id", required=True)
     deploy.add_argument("--node-id")
     deploy.add_argument("--correlation-id")
+    deploy.add_argument("--broker", choices=["bybit", "interactive_brokers", "ibkr"])
+    deploy.add_argument("--control-port", type=int)
+    deploy.add_argument("--strategy-module")
+    deploy.add_argument("--strategy-class")
+    deploy.add_argument("--strategy-config-class")
+    # Bybit
+    deploy.add_argument("--bybit-api-key")
+    deploy.add_argument("--bybit-api-secret")
+    deploy.add_argument("--bybit-environment", choices=["testnet", "mainnet", "demo"])
+    deploy.add_argument("--bybit-product-type", choices=["spot", "linear", "inverse", "option"])
+    deploy.add_argument("--bybit-symbol", help="e.g. BTCUSDT (used to build instrument id)")
+    deploy.add_argument("--bybit-instrument-id", help="e.g. BTCUSDT-LINEAR.BYBIT")
+    # IBKR (optional — kept for later)
     deploy.add_argument("--account-id")
     deploy.add_argument("--ib-host")
     deploy.add_argument("--ib-port", type=int)
@@ -113,10 +182,6 @@ def main() -> None:
     deploy.add_argument("--ib-symbol")
     deploy.add_argument("--ib-exchange")
     deploy.add_argument("--ib-currency")
-    deploy.add_argument("--strategy-module")
-    deploy.add_argument("--strategy-class")
-    deploy.add_argument("--strategy-config-class")
-    deploy.add_argument("--control-port", type=int)
 
     stop = sub.add_parser("stop", help="Stop a trading node")
     stop.add_argument("--user-id", required=True)
@@ -127,6 +192,26 @@ def main() -> None:
     list_cmd = sub.add_parser("list", help="List nodes for a user")
     list_cmd.add_argument("--user-id", required=True)
     list_cmd.add_argument("--correlation-id")
+
+    run_cmd = sub.add_parser("run", help="Start strategy on a deployed node")
+    run_cmd.add_argument("--user-id", required=True)
+    run_cmd.add_argument("--node-id", required=True)
+    run_cmd.add_argument("--correlation-id")
+
+    halt_cmd = sub.add_parser("halt", help="Stop strategy on a deployed node")
+    halt_cmd.add_argument("--user-id", required=True)
+    halt_cmd.add_argument("--node-id", required=True)
+    halt_cmd.add_argument("--correlation-id")
+
+    status_cmd = sub.add_parser("status", help="Strategy status on a deployed node")
+    status_cmd.add_argument("--user-id", required=True)
+    status_cmd.add_argument("--node-id", required=True)
+    status_cmd.add_argument("--correlation-id")
+
+    reset_cmd = sub.add_parser("reset", help="Reset strategy state (must be halted)")
+    reset_cmd.add_argument("--user-id", required=True)
+    reset_cmd.add_argument("--node-id", required=True)
+    reset_cmd.add_argument("--correlation-id")
 
     events = sub.add_parser("events", help="Show recent Conductor events")
     events.add_argument("--count", type=int, default=5)
@@ -148,6 +233,14 @@ def main() -> None:
             "user_id": args.user_id,
             "node_id": args.node_id,
             "payload": {"graceful": not args.no_graceful},
+        }
+    elif args.action in ("run", "halt", "status", "reset"):
+        command = {
+            "command": args.action,
+            "correlation_id": args.correlation_id or str(uuid.uuid4()),
+            "user_id": args.user_id,
+            "node_id": args.node_id,
+            "payload": {},
         }
     else:
         command = {

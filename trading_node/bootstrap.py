@@ -33,11 +33,14 @@ class TradingNodeBootstrap:
 
 
 def load_bootstrap() -> TradingNodeBootstrap:
-    path = os.getenv("CONDUCTOR_BOOTSTRAP")
-    if not path:
-        raise SystemExit("CONDUCTOR_BOOTSTRAP env var is required")
-
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    raw_json = os.getenv("CONDUCTOR_BOOTSTRAP_JSON")
+    if raw_json:
+        data = json.loads(raw_json)
+    else:
+        path = os.getenv("CONDUCTOR_BOOTSTRAP")
+        if not path:
+            raise SystemExit("CONDUCTOR_BOOTSTRAP or CONDUCTOR_BOOTSTRAP_JSON env var is required")
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
     broker = data["broker"]
     strategy = data["strategy"]
 

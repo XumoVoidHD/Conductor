@@ -1,12 +1,24 @@
 # Conductor Node
 
-Shared builder service on one host. Consumes **Redis commands**, spawns **trading node** subprocesses.
+Shared orchestrator service. Consumes **Redis commands**, spawns **trading nodes** as subprocesses (local dev) or **Docker containers** (production compose).
 
 ## Model
 
 The deploy command is **complete**. Conductor does not invent broker fields or allocate
-IBKR client ids. It validates the envelope, writes bootstrap JSON, and starts the process.
+IBKR client ids. It validates the envelope, writes bootstrap JSON, and starts the runtime.
 Broker-specific validation lives in `trading_node/brokers/{adapter}.py`.
+
+## Commands
+
+| Command | Purpose |
+|---------|---------|
+| `deploy` | Spawn trading node (subprocess or container) |
+| `stop` | Destroy trading node |
+| `list` | List nodes for `user_id` |
+| `run` | Start strategy on a deployed node |
+| `halt` | Stop strategy |
+| `status` | Strategy state |
+| `reset` | Reset strategy (must be halted) |
 
 ## Standardized deploy command
 
@@ -18,7 +30,7 @@ Broker-specific validation lives in `trading_node/brokers/{adapter}.py`.
   "node_id": "optional",
   "payload": {
     "broker": {
-      "adapter": "interactive_brokers",
+      "adapter": "bybit",
       "config": { }
     },
     "strategy": {
@@ -33,7 +45,22 @@ Broker-specific validation lives in `trading_node/brokers/{adapter}.py`.
 
 `broker.config` is **opaque to Conductor**. Shape depends on `adapter`.
 
-### `interactive_brokers` config (required fields)
+### `bybit` config (required fields)
+
+```json
+{
+  "api_key": "YOUR_TESTNET_API_KEY",
+  "api_secret": "YOUR_TESTNET_API_SECRET",
+  "environment": "testnet",
+  "product_types": ["linear"],
+  "instrument_ids": ["BTCUSDT-LINEAR.BYBIT"]
+}
+```
+
+`environment`: `testnet` | `mainnet` | `demo`  
+`product_types`: `spot` | `linear` | `inverse` | `option`
+
+### `interactive_brokers` config (later — needs TWS/Gateway)
 
 ```json
 {
@@ -47,25 +74,36 @@ Broker-specific validation lives in `trading_node/brokers/{adapter}.py`.
 }
 ```
 
-## Run
+Use `ibg_host: host.docker.internal` when trading nodes run in Docker.
+
+## Run locally (subprocess)
 
 ```bash
-pip install redis
+pip install -r requirements-conductor.txt
+export CONDUCTOR_NODE_RUNTIME=subprocess
 python -m conductor_node
 ```
 
 ```bash
 python scripts/send_conductor_command.py deploy --user-id alice
+python scripts/send_conductor_command.py run --user-id alice --node-id tn-...
 python scripts/send_conductor_command.py events
 ```
 
-Control a deployed node (use `control_port` from the deploy event):
+## Run in Docker
 
 ```bash
-python control.py run
+docker compose build trading-node
+docker compose up -d redis conductor
 ```
 
-**stop** — `user_id`, `node_id`  
-**list** — `user_id`  
+Deploy with Bybit testnet (set keys in `.env`):
+
+```bash
+python scripts/send_conductor_command.py deploy --user-id alice
+python scripts/send_conductor_command.py run --user-id alice --node-id tn-...
+```
+
+IBKR later: `python scripts/send_conductor_command.py deploy --user-id alice --broker interactive_brokers`
 
 Events go to `conductor:events`.

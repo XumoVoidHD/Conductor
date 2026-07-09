@@ -1,0 +1,55 @@
+services:
+  # Only started with: docker compose --profile with-redis up -d
+  # Skip if you already have Redis on localhost:6379 (e.g. container "conductor-redis").
+  redis:
+    image: redis:7-alpine
+    profiles: ["with-redis"]
+    ports:
+      - "6379:6379"
+    networks:
+      - conductor-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  trading-node:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.trading-node
+    image: conductor-trading-node:latest
+    profiles: ["build-only"]
+
+  conductor:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.conductor
+    image: conductor-node:latest
+    depends_on:
+      redis:
+        condition: service_healthy
+        required: false
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CONDUCTOR_NODE_RUNTIME: docker
+      TRADING_NODE_IMAGE: conductor-trading-node:latest
+      DOCKER_NETWORK: conductor-net
+      DOCKER_NODES_VOLUME: conductor-nodes
+      TRADING_NODE_CONTROL_PORT: "9000"
+      DOCKER_PUBLISH_CONTROL_PORT: "true"
+      CONDUCTOR_NODES_DIR: /app/data/nodes
+    volumes:
+      - conductor-nodes:/app/data/nodes
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - conductor-net
+
+networks:
+  conductor-net:
+    name: conductor-net
+    driver: bridge
+
+volumes:
+  conductor-nodes:
+    name: conductor-nodes

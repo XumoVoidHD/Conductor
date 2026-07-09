@@ -1,0 +1,15 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY requirements-conductor.txt .
+RUN pip install --no-cache-dir -r requirements-conductor.txt
+
+COPY conductor_node/ conductor_node/
+COPY shared/ shared/
+
+ENV PYTHONUNBUFFERED=1
+ENV CONDUCTOR_NODE_RUNTIME=docker
+ENV CONDUCTOR_NODES_DIR=/app/data/nodes
+
+CMD ["python", "-m", "conductor_node"]

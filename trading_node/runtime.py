@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import os
 import socket
 import threading
 from dataclasses import dataclass
@@ -21,7 +22,7 @@ from trading_node.brokers import build_broker
 
 GRACEFUL_STRATEGY_STOP_TIMEOUT_SEC = 10.0
 GRACEFUL_STRATEGY_POLL_SEC = 0.1
-KNOWN_COMMANDS = "run, stop, status, shutdown, kill"
+KNOWN_COMMANDS = "run, halt, status, reset, shutdown, kill"
 
 
 @dataclass
@@ -143,7 +144,7 @@ def _handle_command(
         loop.call_soon_threadsafe(_start_strategy, node, strategy_id)
         return "OK strategy start requested"
 
-    if cmd == "stop":
+    if cmd in ("halt", "stop"):
         strategy = _get_strategy(node, strategy_id)
         if strategy is None:
             return "ERROR strategy not found"
@@ -151,6 +152,15 @@ def _handle_command(
             return "ERROR strategy already stopped"
         loop.call_soon_threadsafe(node.trader.stop_strategy, strategy_id)
         return "OK strategy stop requested"
+
+    if cmd == "reset":
+        strategy = _get_strategy(node, strategy_id)
+        if strategy is None:
+            return "ERROR strategy not found"
+        if strategy.is_running:
+            return "ERROR strategy is running; halt first"
+        loop.call_soon_threadsafe(strategy.reset)
+        return "OK strategy reset"
 
     if cmd == "status":
         with state.lock:
@@ -246,7 +256,7 @@ async def _run_node(
             "strategy_id": strategy_id,
             "state": state,
             "stop_event": stop_event,
-            "host": bootstrap.control_host,
+            "host": os.getenv("CONTROL_BIND_HOST", bootstrap.control_host),
             "port": bootstrap.control_port,
         },
         daemon=True,
@@ -277,11 +287,7 @@ def run() -> None:
     broker_cfg = bootstrap.broker.config
     print("=" * 60)
     print(f"Trading Node {bootstrap.node_id} (user={bootstrap.user_id})")
-    print(
-        f"Broker {bootstrap.broker.adapter} "
-        f"{broker_cfg['ibg_host']}:{broker_cfg['ibg_port']} "
-        f"client_id={broker_cfg['ibg_client_id']}",
-    )
+    print(f"Broker {bootstrap.broker.adapter} config_keys={sorted(broker_cfg.keys())}")
     print(f"Strategy {bootstrap.strategy.module}:{bootstrap.strategy.class_name}")
     print(f"Control {bootstrap.control_host}:{bootstrap.control_port}")
     print("=" * 60)

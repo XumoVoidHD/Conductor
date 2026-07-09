@@ -7,5 +7,5 @@ __pycache__/
 .mypy_cache/
 data/nodes/
 TASKS.md
-cmd.txt
-learn/
+.git/
+.docker/

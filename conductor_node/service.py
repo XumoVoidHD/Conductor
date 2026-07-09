@@ -7,6 +7,7 @@ from conductor_node.schemas import ConductorCommand
 from conductor_node.settings import CONTROL_PORT_BASE
 from conductor_node.settings import COMMANDS_KEY
 from conductor_node.settings import EVENTS_KEY
+from conductor_node.settings import NODE_RUNTIME
 from conductor_node.settings import REDIS_URL
 from conductor_node.redis_bus import RedisBus
 
@@ -25,7 +26,8 @@ def run() -> None:
     print(f"Redis: {REDIS_URL}")
     print(f"Commands queue: {COMMANDS_KEY}")
     print(f"Events queue:   {EVENTS_KEY}")
-    print("Waiting for deploy | stop | list commands...")
+    print(f"Node runtime:   {NODE_RUNTIME}")
+    print("Waiting for deploy | stop | list | run | halt | status | reset ...")
     print("=" * 60)
 
     while True:

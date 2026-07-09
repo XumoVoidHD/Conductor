@@ -12,7 +12,7 @@ from dataclasses import field
 from typing import Any
 
 # Allowlist of adapters this Conductor build can spawn. Shape of config is opaque.
-SUPPORTED_BROKER_ADAPTERS = frozenset({"interactive_brokers"})
+SUPPORTED_BROKER_ADAPTERS = frozenset({"bybit", "interactive_brokers"})
 
 
 @dataclass

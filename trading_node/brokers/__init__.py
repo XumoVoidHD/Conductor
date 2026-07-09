@@ -4,21 +4,28 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from trading_node.brokers.interactive_brokers import build_interactive_brokers
 from trading_node.brokers.types import BrokerSetup
 
-DEFAULT_BROKER_ADAPTER = "interactive_brokers"
+DEFAULT_BROKER_ADAPTER = "bybit"
+
+SUPPORTED_BROKER_ADAPTERS = frozenset({"bybit", "interactive_brokers"})
 
 BrokerBuilder = Callable[[dict[str, Any]], BrokerSetup]
 
-BROKER_BUILDERS: dict[str, BrokerBuilder] = {
-    "interactive_brokers": build_interactive_brokers,
-}
+
+def _load_builder(adapter: str) -> BrokerBuilder:
+    if adapter == "bybit":
+        from trading_node.brokers.bybit import build_bybit
+
+        return build_bybit
+    if adapter == "interactive_brokers":
+        from trading_node.brokers.interactive_brokers import build_interactive_brokers
+
+        return build_interactive_brokers
+    supported = ", ".join(sorted(SUPPORTED_BROKER_ADAPTERS))
+    raise ValueError(f"unsupported broker adapter '{adapter}' (supported: {supported})")
 
 
 def build_broker(adapter: str, config: dict[str, Any]) -> BrokerSetup:
-    builder = BROKER_BUILDERS.get(adapter)
-    if builder is None:
-        supported = ", ".join(sorted(BROKER_BUILDERS))
-        raise ValueError(f"unsupported broker adapter '{adapter}' (supported: {supported})")
+    builder = _load_builder(adapter)
     return builder(config)

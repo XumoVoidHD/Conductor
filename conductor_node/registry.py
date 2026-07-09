@@ -1,4 +1,4 @@
-"""Track spawned trading node processes."""
+"""Track spawned trading nodes (subprocess or Docker container)."""
 from __future__ import annotations
 
 import subprocess
@@ -6,21 +6,32 @@ import threading
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
+from typing import Literal
+
+NodeRuntimeKind = Literal["subprocess", "docker"]
 
 
 @dataclass
 class RunningNode:
     node_id: str
     user_id: str
-    process: subprocess.Popen[Any]
     control_host: str
     control_port: int
     broker_adapter: str
     bootstrap_path: str
+    runtime: NodeRuntimeKind
     deploy_status: str = "DEPLOYED"
+    process: subprocess.Popen[Any] | None = None
+    container_id: str | None = None
 
     def is_alive(self) -> bool:
-        return self.process.poll() is None
+        if self.runtime == "docker":
+            if not self.container_id:
+                return False
+            from conductor_node.docker_runtime import is_container_alive
+
+            return is_container_alive(self.container_id)
+        return self.process is not None and self.process.poll() is None
 
 
 @dataclass
@@ -32,7 +43,12 @@ class NodeRegistry:
     def configure_port_base(self, control_port_base: int) -> None:
         self._next_control_port = control_port_base
 
-    def allocate_control_port(self, requested: int | None) -> int:
+    def allocate_control_port(self, requested: int | None, *, runtime: NodeRuntimeKind) -> int:
+        if runtime == "docker":
+            from conductor_node.settings import TRADING_NODE_CONTROL_PORT
+
+            return requested or TRADING_NODE_CONTROL_PORT
+
         with self._lock:
             if requested is not None:
                 return requested
