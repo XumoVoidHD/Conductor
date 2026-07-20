@@ -1,9 +1,24 @@
-"""User ORM model."""
+"""
+Table: users
+
+Platform accounts for Conductor.
+
+Columns:
+  id              UUID PK
+  username        unique login name (also used as Conductor user_id)
+  email           unique email
+  password_hash   Argon2 hash
+  role            USER | ADMIN  (ADMIN can register global SYSTEM strategies)
+  trading_nodes   max concurrent trading nodes allowed
+  is_active       soft disable
+  created_at / updated_at
+"""
 from __future__ import annotations
 
 import enum
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean
 from sqlalchemy import DateTime
@@ -14,8 +29,13 @@ from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
+from sqlalchemy.orm import relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.db.models.strategy import Strategy
+    from app.db.models.strategy import StrategyAccess
 
 
 class UserRole(str, enum.Enum):
@@ -62,6 +82,17 @@ class User(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+    created_strategies: Mapped[list[Strategy]] = relationship(
+        "Strategy",
+        back_populates="created_by",
+        foreign_keys="Strategy.created_by_user_id",
+    )
+    strategy_access_grants: Mapped[list[StrategyAccess]] = relationship(
+        "StrategyAccess",
+        back_populates="user",
+        foreign_keys="StrategyAccess.user_id",
     )
 
     def __repr__(self) -> str:

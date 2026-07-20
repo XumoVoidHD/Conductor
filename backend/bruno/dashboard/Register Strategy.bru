@@ -1,0 +1,36 @@
+meta {
+  name: Register Strategy
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/v1/dashboard/strategies/register
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "filename": "running_ping.py"
+  }
+}
+
+docs {
+  Register a strategy file from the repo `strategies/` folder.
+
+  Body: `{ "filename": "running_ping" }` or `"running_ping.py"`.
+
+  - ADMIN → registered as SYSTEM / global (`created_by: "SYSTEM"`)
+  - USER → owned by the authenticated username
+
+  File must already exist under `strategies/`. Discovery reads Strategy + StrategyConfig classes.
+}

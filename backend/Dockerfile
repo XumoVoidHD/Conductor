@@ -14,7 +14,7 @@ COPY alembic/ alembic/
 COPY app/ app/
 
 ENV PYTHONUNBUFFERED=1
-ENV POSTGRES_HOST=host.docker.internal
+ENV POSTGRES_HOST=postgres
 
 EXPOSE 8000
 

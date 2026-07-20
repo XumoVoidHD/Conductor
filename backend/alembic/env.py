@@ -9,6 +9,8 @@ from sqlalchemy import pool
 
 from app.core.config import get_settings
 from app.db.base import Base
+from app.db.models.strategy import Strategy  # noqa: F401 — register metadata
+from app.db.models.strategy import StrategyAccess  # noqa: F401 — register metadata
 from app.db.models.user import User  # noqa: F401 — register metadata
 
 config = context.config

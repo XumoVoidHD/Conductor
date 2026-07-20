@@ -77,22 +77,30 @@ Conductor/
 ├── cmd.txt                 # How to turn on the project (commands only)
 ├── ARCHITECTURE.md         # This file
 ├── PROJECT_VISION.md       # Product vision
-├── .env                    # All config (create from template below)
-├── docker-compose.yml      # Redis + Conductor (Docker mode)
+├── .env                    # Secrets + config (not committed)
+├── conductor-core/         # Docker Compose project: postgres, redis, backend, conductor
+│   └── docker-compose.yml
 ├── backend/                # FastAPI — auth, dashboard, Alembic migrations
 │   ├── app/
 │   ├── alembic/
 │   └── bruno/              # API request collection
-├── db/                     # Shared PostgreSQL (docker compose only)
+├── db/                     # Legacy path — postgres now lives under conductor-core/
 ├── frontend/               # Static UI (optional)
 ├── conductor_node/         # Shared orchestrator
 ├── trading_node/           # Nautilus worker + brokers/
 ├── strategies/             # Example strategies
 ├── scripts/                # CLI → Redis
 ├── shared/                 # Shared helpers (.env loader)
-├── docker/                 # Dockerfiles
+├── docker/                 # Dockerfiles for conductor + trading-node
 └── worker.py / control.py  # Early local prototype
 ```
+
+**Docker grouping**
+
+| Group | How it exists | Labels |
+|-------|---------------|--------|
+| **conductor-core** | Compose project `conductor-core` — postgres, redis, backend, conductor | `conductor.stack=core`, `conductor.role=<service>` |
+| **Trading nodes** | Spawned by Conductor on deploy (not in compose) | `conductor.stack=trading`, `conductor.role=trading-node` |
 
 ---
 

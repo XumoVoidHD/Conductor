@@ -1,16 +1,14 @@
-"""Catalog of strategies the dashboard can deploy."""
+"""Default global strategies seeded as SYSTEM-owned."""
 from __future__ import annotations
 
 from typing import Any
 
-
-# Default Bybit linear instrument — override via deploy request if needed.
 _BYBIT_LINEAR = "BTCUSDT-LINEAR.BYBIT"
 _BYBIT_BAR = "BTCUSDT-LINEAR.BYBIT-1-MINUTE-LAST-EXTERNAL"
 
-STRATEGY_CATALOG: list[dict[str, Any]] = [
+GLOBAL_STRATEGY_SEEDS: list[dict[str, Any]] = [
     {
-        "id": "running_ping",
+        "slug": "running_ping",
         "name": "RunningPing",
         "description": "Smoke test — prints 'running' every 10s. No orders.",
         "module": "strategies.running_ping",
@@ -18,9 +16,10 @@ STRATEGY_CATALOG: list[dict[str, Any]] = [
         "config_class": "RunningPingConfig",
         "default_config": {},
         "requires_market_data": False,
+        "is_global": True,
     },
     {
-        "id": "hello_bars",
+        "slug": "hello_bars",
         "name": "HelloBars",
         "description": "Logs bars and places one small buy/sell round-trip.",
         "module": "strategies.hello_bars",
@@ -34,9 +33,10 @@ STRATEGY_CATALOG: list[dict[str, Any]] = [
             "sell_after_bars": 8,
         },
         "requires_market_data": True,
+        "is_global": True,
     },
     {
-        "id": "ema_cross",
+        "slug": "ema_cross",
         "name": "EmaCross",
         "description": "Long-only fast/slow EMA crossover on 1-minute bars.",
         "module": "strategies.ema_cross",
@@ -52,16 +52,6 @@ STRATEGY_CATALOG: list[dict[str, Any]] = [
             "close_positions_on_stop": True,
         },
         "requires_market_data": True,
+        "is_global": True,
     },
 ]
-
-
-def list_strategies() -> list[dict[str, Any]]:
-    return list(STRATEGY_CATALOG)
-
-
-def get_strategy(strategy_id: str) -> dict[str, Any] | None:
-    for item in STRATEGY_CATALOG:
-        if item["id"] == strategy_id:
-            return item
-    return None

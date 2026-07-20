@@ -1,25 +1,18 @@
-services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: conductor-postgres
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-conductor}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-conductor}
-      POSTGRES_DB: ${POSTGRES_DB:-conductor}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - conductor-postgres:/var/lib/postgresql/data
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-conductor} -d ${POSTGRES_DB:-conductor}",
-        ]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+# Deprecated — Postgres (and the rest of core) live in conductor-core/.
+#
+# Use:
+#   docker compose -f conductor-core/docker-compose.yml up -d postgres
+#
+# This stub remains so old scripts that point at db/docker-compose.yml fail loudly
+# with a clear message instead of silently creating a second Postgres.
 
-volumes:
-  conductor-postgres:
-    name: conductor-postgres
+services:
+  _moved_to_conductor_core:
+    image: alpine:3.20
+    profiles: ["never"]
+    entrypoint:
+      [
+        "sh",
+        "-c",
+        "echo 'db/docker-compose.yml is retired. Use conductor-core/docker-compose.yml' && exit 1",
+      ]

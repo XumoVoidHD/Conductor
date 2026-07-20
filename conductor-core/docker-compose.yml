@@ -1,0 +1,140 @@
+# Project name → containers group under "conductor-core" in Docker Desktop / `docker compose ls`
+name: conductor-core
+
+# Core platform stack. Start services one at a time or all together:
+#
+#   docker compose -f conductor-core/docker-compose.yml up -d postgres
+#   docker compose -f conductor-core/docker-compose.yml up -d redis
+#   docker compose -f conductor-core/docker-compose.yml up -d backend
+#   docker compose -f conductor-core/docker-compose.yml up -d conductor
+#   docker compose -f conductor-core/docker-compose.yml up -d          # all core
+#
+# Trading nodes are NOT in this file — Conductor spawns them at deploy time
+# with labels conductor.stack=trading / conductor.role=trading-node.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: conductor-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-conductor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-conductor}
+      POSTGRES_DB: ${POSTGRES_DB:-conductor}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - conductor-postgres:/var/lib/postgresql/data
+    networks:
+      - conductor-net
+    labels:
+      conductor.stack: core
+      conductor.role: postgres
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-conductor} -d ${POSTGRES_DB:-conductor}",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: conductor-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - conductor-net
+    labels:
+      conductor.stack: core
+      conductor.role: redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    image: conductor-backend:latest
+    container_name: conductor-backend
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      # Same Docker network as postgres/redis — use service DNS names
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-conductor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-conductor}
+      POSTGRES_DB: ${POSTGRES_DB:-conductor}
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    networks:
+      - conductor-net
+    labels:
+      conductor.stack: core
+      conductor.role: backend
+    # Soft deps: `up -d backend` alone still works; health waits only if those are starting too
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+
+  conductor:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.conductor
+    image: conductor-node:latest
+    container_name: conductor-orchestrator
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CONDUCTOR_NODE_RUNTIME: docker
+      TRADING_NODE_IMAGE: conductor-trading-node:latest
+      DOCKER_NETWORK: conductor-net
+      DOCKER_NODES_VOLUME: conductor-nodes
+      TRADING_NODE_CONTROL_PORT: "9000"
+      DOCKER_PUBLISH_CONTROL_PORT: "true"
+      CONDUCTOR_NODES_DIR: /app/data/nodes
+    volumes:
+      - conductor-nodes:/app/data/nodes
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - conductor-net
+    labels:
+      conductor.stack: core
+      conductor.role: conductor
+    depends_on:
+      redis:
+        condition: service_healthy
+        required: false
+
+  # Image only — never started as a long-running core service.
+  # Build: docker compose -f conductor-core/docker-compose.yml --profile build build trading-node
+  trading-node:
+    profiles: ["build"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.trading-node
+    image: conductor-trading-node:latest
+    labels:
+      conductor.stack: trading
+      conductor.role: trading-node
+
+networks:
+  conductor-net:
+    name: conductor-net
+    driver: bridge
+
+volumes:
+  conductor-postgres:
+    name: conductor-postgres
+  conductor-nodes:
+    name: conductor-nodes

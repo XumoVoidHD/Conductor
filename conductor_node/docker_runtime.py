@@ -72,6 +72,8 @@ def spawn_trading_node_container(
             "CONTROL_BIND_HOST": "0.0.0.0",
         },
         "labels": {
+            "conductor.stack": "trading",
+            "conductor.role": "trading-node",
             "conductor.node_id": node_id,
             "conductor.user_id": user_id,
         },
