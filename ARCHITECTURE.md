@@ -495,14 +495,17 @@ Frontend:
 ## Repository layout (backend focus)
 
 ```
+api/                     # FastAPI auth (self-contained: app, alembic, compose, reqs)
+frontend/                # Basic static UI (registration → API)
 conductor_node/          # Shared orchestrator (Redis → spawn trading nodes)
 trading_node/            # Nautilus worker process
-  brokers/               # Adapter registry (IBKR today)
+  brokers/               # Adapter registry (Bybit + IBKR)
 strategies/              # Example / smoke strategies (vault later)
 scripts/                 # Temp CLI → Redis (API later)
-shared/                  # Shared helpers (.env)
+shared/                  # Shared helpers (.env) for conductor/trading
+docker/                  # Conductor + trading-node Dockerfiles
+docker-compose.yml       # Conductor/Redis stack only
 worker.py / control.py   # Earlier local prototype (still usable standalone)
-learn/                   # Nautilus learning scripts
 ```
 
 ---

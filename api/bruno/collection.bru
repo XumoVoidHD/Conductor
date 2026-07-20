@@ -1,0 +1,17 @@
+docs {
+  # Conductor API
+
+  Bruno collection for the Conductor FastAPI service.
+
+  ## Setup
+
+  1. Open this folder in Bruno (**Open Collection**)
+  2. Select environment **Local**
+  3. Start the API: `uvicorn app.main:app --reload --port 8000` from `api/`
+
+  ## Conventions
+
+  - `{{baseUrl}}` comes from the active environment
+  - Add new requests under folders matching OpenAPI tags (`auth`, `health`, …)
+  - Keep request bodies in sync with `app/schemas/`
+}

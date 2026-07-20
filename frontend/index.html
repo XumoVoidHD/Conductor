@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Conductor — Create account</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Sora:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="atmosphere" aria-hidden="true"></div>
+    <div class="grid-lines" aria-hidden="true"></div>
+
+    <main class="stage">
+      <header class="brand-block">
+        <p class="brand">Conductor</p>
+        <h1 class="headline">Run your strategies.<br /><em>Own the rails.</em></h1>
+        <p class="lede">
+          Create an account to deploy Nautilus trading nodes on Bybit — and
+          more brokers soon.
+        </p>
+      </header>
+
+      <section class="panel" id="register-panel">
+        <h2 class="panel-title">Create account</h2>
+        <form id="register-form" novalidate>
+          <label class="field">
+            <span>Username</span>
+            <input
+              type="text"
+              name="username"
+              autocomplete="username"
+              placeholder="vedansh"
+              minlength="3"
+              maxlength="64"
+              pattern="[a-zA-Z0-9_\-\.]+"
+              required
+            />
+          </label>
+          <label class="field">
+            <span>Email</span>
+            <input
+              type="email"
+              name="email"
+              autocomplete="email"
+              placeholder="you@example.com"
+              required
+            />
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <input
+              type="password"
+              name="password"
+              autocomplete="new-password"
+              placeholder="At least 8 characters"
+              minlength="8"
+              maxlength="128"
+              required
+            />
+          </label>
+
+          <p class="form-error" id="form-error" hidden></p>
+
+          <button type="submit" class="btn-primary" id="submit-btn">
+            <span class="btn-label">Register</span>
+            <span class="btn-spinner" aria-hidden="true"></span>
+          </button>
+        </form>
+      </section>
+
+      <section class="panel success" id="success-panel" hidden>
+        <p class="success-kicker">You're in</p>
+        <h2 class="panel-title">Account created</h2>
+        <dl class="user-card" id="user-card"></dl>
+        <button type="button" class="btn-ghost" id="again-btn">
+          Register another
+        </button>
+      </section>
+    </main>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

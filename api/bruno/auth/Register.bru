@@ -1,0 +1,33 @@
+meta {
+  name: Register
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/register
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "username": "vedansh",
+    "email": "vedansh@example.com",
+    "password": "Password@123"
+  }
+}
+
+docs {
+  Create a new user account.
+
+  - **201** — user created (password never returned)
+  - **409** — username or email already exists
+  - **422** — validation error
+
+  Request fields match `UserRegisterRequest` in `app/schemas/auth.py`.
+}

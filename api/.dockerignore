@@ -1,12 +1,8 @@
 .env
-api/.env
 .venv/
 __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
-data/nodes/
-TASKS.md
-cmd.txt
-learn/
+.git/
