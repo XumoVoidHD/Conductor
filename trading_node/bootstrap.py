@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ class StrategyBootstrap:
     module: str
     class_name: str
     config_class: str
+    config: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -58,5 +60,6 @@ def load_bootstrap() -> TradingNodeBootstrap:
             module=str(strategy["module"]),
             class_name=str(strategy["class_name"]),
             config_class=str(strategy["config_class"]),
+            config=dict(strategy.get("config") or {}),
         ),
     )

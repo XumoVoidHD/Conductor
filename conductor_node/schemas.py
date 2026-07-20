@@ -26,6 +26,7 @@ class StrategyDeployConfig:
     module: str
     class_name: str
     config_class: str
+    config: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -115,6 +116,7 @@ def _parse_strategy(strategy_raw: dict[str, Any]) -> StrategyDeployConfig:
         module=str(module),
         class_name=str(class_name),
         config_class=str(config_class),
+        config=dict(strategy_raw.get("config") or {}),
     )
 
 

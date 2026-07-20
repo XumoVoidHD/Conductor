@@ -1,0 +1,19 @@
+meta {
+  name: List Strategies
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/v1/dashboard/strategies
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+docs {
+  Returns the strategy catalog. Requires JWT (run Login first).
+}

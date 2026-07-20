@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Conductor — Create account</title>
+    <title>Conductor — Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -16,73 +16,109 @@
     <div class="atmosphere" aria-hidden="true"></div>
     <div class="grid-lines" aria-hidden="true"></div>
 
-    <main class="stage">
-      <header class="brand-block">
-        <p class="brand">Conductor</p>
-        <h1 class="headline">Run your strategies.<br /><em>Own the rails.</em></h1>
-        <p class="lede">
-          Create an account to deploy Nautilus trading nodes on Bybit — and
-          more brokers soon.
-        </p>
+    <!-- Auth gate -->
+    <div class="shell auth-shell" id="auth-shell">
+      <header class="top auth-top">
+        <div>
+          <p class="brand">Conductor</p>
+          <p class="tagline">Create an account or sign in to deploy strategies</p>
+        </div>
       </header>
 
-      <section class="panel" id="register-panel">
-        <h2 class="panel-title">Create account</h2>
-        <form id="register-form" novalidate>
+      <p class="banner" id="auth-banner" hidden></p>
+
+      <section class="panel auth-panel">
+        <div class="auth-tabs">
+          <button type="button" class="auth-tab is-active" data-tab="login" id="tab-login">
+            Sign in
+          </button>
+          <button type="button" class="auth-tab" data-tab="register" id="tab-register">
+            Register
+          </button>
+        </div>
+
+        <form id="login-form" class="auth-form">
           <label class="field">
             <span>Username</span>
-            <input
-              type="text"
-              name="username"
-              autocomplete="username"
-              placeholder="vedansh"
-              minlength="3"
-              maxlength="64"
-              pattern="[a-zA-Z0-9_\-\.]+"
-              required
-            />
-          </label>
-          <label class="field">
-            <span>Email</span>
-            <input
-              type="email"
-              name="email"
-              autocomplete="email"
-              placeholder="you@example.com"
-              required
-            />
+            <input type="text" name="username" autocomplete="username" required />
           </label>
           <label class="field">
             <span>Password</span>
-            <input
-              type="password"
-              name="password"
-              autocomplete="new-password"
-              placeholder="At least 8 characters"
-              minlength="8"
-              maxlength="128"
-              required
-            />
+            <input type="password" name="password" autocomplete="current-password" required />
           </label>
+          <button type="submit" class="btn-primary" id="login-btn">Sign in</button>
+        </form>
 
-          <p class="form-error" id="form-error" hidden></p>
-
-          <button type="submit" class="btn-primary" id="submit-btn">
-            <span class="btn-label">Register</span>
-            <span class="btn-spinner" aria-hidden="true"></span>
-          </button>
+        <form id="register-form" class="auth-form" hidden>
+          <label class="field">
+            <span>Username</span>
+            <input type="text" name="username" autocomplete="username" required />
+          </label>
+          <label class="field">
+            <span>Email</span>
+            <input type="text" name="email" autocomplete="email" required />
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <input type="password" name="password" autocomplete="new-password" required />
+          </label>
+          <button type="submit" class="btn-primary" id="register-btn">Create account</button>
         </form>
       </section>
+    </div>
 
-      <section class="panel success" id="success-panel" hidden>
-        <p class="success-kicker">You're in</p>
-        <h2 class="panel-title">Account created</h2>
-        <dl class="user-card" id="user-card"></dl>
-        <button type="button" class="btn-ghost" id="again-btn">
-          Register another
-        </button>
+    <!-- Dashboard (shown when logged in) -->
+    <div class="shell" id="dash-shell" hidden>
+      <header class="top">
+        <div>
+          <p class="brand">Conductor</p>
+          <p class="tagline">
+            Signed in as <strong id="user-label">—</strong>
+          </p>
+        </div>
+        <div class="top-actions">
+          <div class="status-pill" id="status-pill">checking…</div>
+          <button type="button" class="btn-ghost" id="logout-btn">Log out</button>
+        </div>
+      </header>
+
+      <p class="banner" id="banner" hidden></p>
+
+      <section class="block">
+        <div class="block-head">
+          <h2>Strategies</h2>
+          <button type="button" class="btn-ghost" id="refresh-strategies">Refresh</button>
+        </div>
+        <div class="strategy-grid" id="strategy-grid">
+          <p class="muted">Loading strategies…</p>
+        </div>
       </section>
-    </main>
+
+      <section class="block">
+        <div class="block-head">
+          <h2>Nodes</h2>
+          <button type="button" class="btn-ghost" id="refresh-nodes">Refresh</button>
+        </div>
+        <div class="nodes-table-wrap">
+          <table class="nodes-table" id="nodes-table">
+            <thead>
+              <tr>
+                <th>Node</th>
+                <th>Status</th>
+                <th>Broker</th>
+                <th>Runtime</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="nodes-body">
+              <tr>
+                <td colspan="5" class="muted">No nodes yet</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
 
     <script src="config.js"></script>
     <script src="app.js"></script>

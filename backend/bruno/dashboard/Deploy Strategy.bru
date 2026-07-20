@@ -1,0 +1,30 @@
+meta {
+  name: Deploy Strategy
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/v1/dashboard/deploy
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "strategy_id": "running_ping"
+  }
+}
+
+docs {
+  Requires JWT. Deploys via Conductor for the authenticated user.
+  Strategy starts STOPPED — use Run Node next.
+}

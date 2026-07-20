@@ -1,0 +1,25 @@
+meta {
+  name: Stop Node
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/v1/dashboard/nodes/stop
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "node_id": "tn-REPLACE_ME"
+  }
+}

@@ -8,6 +8,7 @@ import socket
 import threading
 from dataclasses import dataclass
 from dataclasses import field
+from typing import Any
 
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import TradingNodeConfig
@@ -31,16 +32,44 @@ class WorkerState:
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
+def _coerce_strategy_config_value(key: str, value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    if key == "instrument_id":
+        from nautilus_trader.model.identifiers import InstrumentId
+
+        return InstrumentId.from_str(value)
+    if key == "bar_type":
+        from nautilus_trader.model.data import BarType
+
+        return BarType.from_str(value)
+    if key == "trade_size":
+        from decimal import Decimal
+
+        return Decimal(value)
+    return value
+
+
+def _build_strategy_config(config_cls: type, raw: dict[str, Any]) -> Any:
+    if not raw:
+        return config_cls()
+    kwargs = {key: _coerce_strategy_config_value(key, value) for key, value in raw.items()}
+    return config_cls(**kwargs)
+
+
 def _load_strategy(bootstrap: TradingNodeBootstrap) -> Strategy:
     spec = bootstrap.strategy
-    if spec.module != "strategies.running_ping":
-        raise ValueError(f"unsupported strategy module for v1: {spec.module}")
+    if not spec.module.startswith("strategies."):
+        raise ValueError(
+            f"unsupported strategy module '{spec.module}' "
+            "(must be under strategies.*)",
+        )
 
     module = importlib.import_module(spec.module)
     strategy_cls = getattr(module, spec.class_name)
     config_cls = getattr(module, spec.config_class)
 
-    config = config_cls()
+    config = _build_strategy_config(config_cls, dict(spec.config))
     return strategy_cls(config=config)
 
 

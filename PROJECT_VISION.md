@@ -1,8 +1,11 @@
-# Conductor — Project Vision (High Level)
+# Conductor — Project Vision
 
-This document describes **what we are building**, **how pieces connect**, and **what role each piece plays**. It is intentionally high level: enough structure to orient yourself, not a detailed design. A precise spec (APIs, schemas, stream names, Docker layout) comes later, after the concepts settle.
+What we are building, why, and how the pieces fit together at a product level.
 
-**Runtime foundation:** [Nautilus Trader](https://nautilus.trader/) — strategies, adapters, `TradingNode`, backtest and live engines. Conductor is a control layer **around** Nautilus, not a replacement for it.
+**Technical detail:** [`ARCHITECTURE.md`](ARCHITECTURE.md) — components, data flows, env, API, brokers.  
+**How to run locally:** [`cmd.txt`](cmd.txt) — startup commands only.
+
+**Runtime foundation:** [Nautilus Trader](https://nautilus.trader/) runs strategies and brokers. Conductor is a control layer **around** Nautilus, not a replacement.
 
 ---
 
@@ -12,32 +15,30 @@ This document describes **what we are building**, **how pieces connect**, and **
 
 Each user gets:
 
-- A **strategy vault** — their library of Nautilus strategy classes and configs (code they own and upload)
-- **Trading nodes** — long-running Docker workers connected to a broker
-- A **UI / API** to deploy nodes, attach strategies from the vault, start/stop them, and see status and history
+- A **strategy vault** — their library of Nautilus strategy classes and configs (code they own)
+- **Trading nodes** — long-running workers connected to a broker
+- A **UI / API** to deploy nodes, attach strategies, start/stop them, and see status and history
 
-The product goal is **simplicity**: make it easy to run standard Nautilus strategies remotely without building your own infrastructure. We orchestrate workers; Nautilus does the trading.
+The product goal is **simplicity**: run standard Nautilus strategies remotely without building your own infrastructure. We orchestrate workers; Nautilus does the trading.
 
 ### What Conductor offers
 
-- Deploy and manage dockerized **Nautilus `TradingNode` workers**
-- Connect workers to **one or two officially Nautilus-supported brokers** (initial target: Interactive Brokers; a second broker TBD)
+- Deploy and manage **Nautilus `TradingNode` workers** (subprocess locally, Docker in production)
+- Connect workers to **officially Nautilus-supported brokers** we operate and test
 - **Start, stop, restart** strategy instances on a running node
-- **Apply configuration** to a strategy instance (Nautilus `StrategyConfig` — JSON-serializable params users define)
-- **Command and event audit** — every action traceable from UI intent to worker outcome
+- **Apply configuration** via Nautilus `StrategyConfig` (JSON-serializable params)
+- **Command and event audit** — every action traceable from UI/API intent to worker outcome
 - **Per-user isolation** — vault, nodes, credentials, and runtime scoped to the account
 
 ### What Conductor deliberately does not offer
 
-These are out of scope. Users who need them use Nautilus directly or extend their own code:
+- **No strategy builder** — users write normal Nautilus `Strategy` subclasses
+- **No universal instrument provider** — instruments come from the broker adapter Nautilus ships
+- **No custom abstractions on top of Nautilus** — no proprietary order engine or data models
+- **No broad broker support** — only adapters we choose to operate
+- **No full artifact registry product** — vault is storage + metadata, not devpi/commit
 
-- **No strategy builder** — we do not generate or compose strategies in the UI. Users write normal Nautilus `Strategy` subclasses and register them in their vault.
-- **No universal instrument provider** — instruments come from the broker adapter Nautilus already ships (e.g. IB instrument provider), not a custom cross-market catalog layer.
-- **No custom abstractions on top of Nautilus** — no proprietary strategy runtime, order types, or data models beyond what Nautilus exposes.
-- **No broad broker support** — only brokers with official Nautilus adapters that we choose to operate and test.
-- **No commit/registry/devpi-style package orchestration** — vault storage is simpler (see below); not a full artifact registry product.
-
-If Nautilus can do it natively inside a `TradingNode`, we may expose it. If it requires a custom framework on top of Nautilus, we do not.
+If Nautilus can do it natively inside a `TradingNode`, we may expose it. If it requires a custom framework on top, we do not.
 
 ---
 
@@ -45,34 +46,31 @@ If Nautilus can do it natively inside a `TradingNode`, we may expose it. If it r
 
 The **vault** is each user's private store of runnable Nautilus strategies.
 
-Conceptually it holds:
+It holds:
 
-- **Strategy entrypoint** — import path to a `Strategy` subclass (e.g. `my_strategies.ema_cross:EmaCross`)
-- **Config schema / values** — the `StrategyConfig` fields that instance needs (instrument, bar type, EMA periods, size, etc.)
-- **Version or label** — so the user can pick which revision to deploy
+- **Strategy entrypoint** — import path (e.g. `strategies.ema_cross:EmaCross`)
+- **Config schema / values** — `StrategyConfig` fields for that instance
+- **Version or label** — pick which revision to deploy
 
-When a user deploys a strategy to a node, Conductor:
+On deploy, the platform resolves the vault entry → builds `ImportableStrategyConfig` → registers on the node's `Trader`.
 
-1. Resolves the vault entry
-2. Builds a Nautilus `ImportableStrategyConfig` (or equivalent) for the worker bootstrap
-3. Registers the strategy on the node's `Trader` via the in-node controller
+**Today:** a fixed in-repo catalog (`backend/app/catalog/strategies.py`) — `running_ping`, `hello_bars`, `ema_cross`. **Target:** per-user vault in DB + upload/storage.
 
-The vault is **storage + metadata**, not a code generator. Strategies are ordinary Nautilus code — the same classes that work in a local backtest or `TradingNode` should run on Conductor with minimal changes.
+The vault is **storage + metadata**, not a code generator.
 
 ---
 
 ## Supported brokers
 
-Conductor officially supports a **small, fixed set** of brokers — those with mature **Nautilus live adapters** we are willing to run in production.
+Small, fixed set of brokers with mature **Nautilus live adapters**.
 
 | Phase | Broker | Notes |
 |-------|--------|-------|
-| v1 | Interactive Brokers (TWS / Gateway) | Paper and live via `interactive_brokers` adapter |
-| v2 | TBD (e.g. Binance, another Nautilus adapter) | Added only when adapter + ops are ready |
+| **Now (dev/test)** | **Bybit testnet** | Default for local and dashboard deploys |
+| v1 prod | Interactive Brokers (TWS / Gateway) | Paper and live via `interactive_brokers` adapter |
+| v2 | TBD | Added when adapter + ops are ready |
 
-Users connect **their own broker credentials** (stored securely — vault/secrets layer TBD). Conductor wires the worker to the adapter; it does not replace the broker.
-
-Market data, order routing, and instrument definitions follow **Nautilus adapter behavior** for that broker — we do not add a parallel data or symbology layer.
+Users connect **their own broker credentials** (env today; secrets layer TBD). Conductor wires the worker; it does not replace the broker.
 
 ---
 
@@ -80,220 +78,132 @@ Market data, order routing, and instrument definitions follow **Nautilus adapter
 
 | Layer | Question it answers |
 |-------|---------------------|
-| **Node orchestration** | Should this container exist? Which image, bootstrap config, broker credentials, which host? |
-| **In-node control** | Inside a running container, should this strategy be started, stopped, or reconfigured? |
+| **Node orchestration** | Should this container/process exist? Bootstrap, broker creds, control port? |
+| **In-node control** | Inside a running worker, should this strategy start, stop, or reconfigure? |
 
-Keeping this split clear is important: Docker lifecycle vs. strategy lifecycle inside an already-running Nautilus process.
+Docker lifecycle vs strategy lifecycle inside an already-running Nautilus process.
 
 ---
 
-## Main roles (who does what)
-
-These are **roles**, not final service names or file layouts.
+## Main roles
 
 ### 1. Frontend
 
-**Role:** Surface for operators.
+UI for nodes, vault, deploy, run/stop, live status. Talks **only** to the API.
 
-Shows nodes, vault strategies, and running instances. Sends intent (deploy node, attach strategy, start, stop, update config). Displays status, logs, and command/event history. Talks **only** to the API.
+**Today:** static HTML/JS in `frontend/` (login + dashboard). **Primary dev testing:** Bruno collection in `backend/bruno/`.
 
 ### 2. API / control plane
 
-**Role:** System of record for **desired state** and **audit**.
+Auth, stamp `user_id` on commands, desired state + audit (DB), enqueue Conductor commands, serve node list. Later: consume observe stream, WebSockets.
 
-Accepts requests from the frontend, validates them, writes to a database, publishes **commands** to workers, and ingests **events** back. Per-user auth and vault access control live here (detail TBD).
+**Today:** FastAPI — register/login/JWT, dashboard deploy/run/halt/stop via Redis → Conductor.
 
-### 3. Node orchestrator
+### 3. Node orchestrator (Conductor Node)
 
-**Role:** **Container lifecycle** on a host.
+Container/process lifecycle. Validates deploy envelope, writes bootstrap, spawns trading node. Proxies strategy control over TCP.
 
-Starts and stops Docker workers when the platform decides a node should exist. Passes bootstrap payload (broker config, node id, bus credentials) into the container at start. Does not trade; does not run strategy logic.
+**Today:** `conductor_node/` — one shared service for all users.
 
 ### 4. Trading node (worker)
 
-**Role:** **Long-lived Nautilus runtime** inside Docker.
+Long-lived Nautilus runtime. Data/exec engines, broker clients, strategy load, in-node TCP control.
 
-One container ≈ one `TradingNode`: data engine, exec engine, cache, message bus, broker clients. This is where strategies actually run. Early learning used a local process (`worker.py`); production target is the same pattern inside Docker.
+**Today:** `trading_node/` — subprocess or Docker container per deploy.
 
 ### 5. In-node controller
 
-**Role:** **Remote control inside the worker process.**
+Remote control inside the worker: `run`, `halt`, `status`, `reset`, `shutdown`. Uses Nautilus Trader APIs.
 
-Subscribes to commands for this node (via message bus), dispatches to handlers (`start_strategy`, `stop_strategy`, `apply_config`, etc.), and publishes events back. Same process as the trader; different concern from spawning Docker.
+**Today:** TCP socket in `trading_node/` (Conductor proxies Redis commands to it).
 
-Uses Nautilus APIs directly: `Trader.start_strategy`, `Trader.stop_strategy`, `Controller`, strategy state machine (`reset` / `start` after stop), etc.
+### 6. Message bus (Redis)
 
-### 6. Strategy instance
+Async command/event pipe. Control plane uses Redis **lists**. Observe plane (planned) uses Redis **streams**.
 
-**Role:** A **vault strategy + config** running on a specific node.
+### 7. Database
 
-Identified by a stable slot/id on that node. Multiple instances can use different vault entries or the same strategy with different configs. Multiple nodes can run the same vault strategy independently.
+Durable users, desired state, audit, vault metadata.
 
-### 7. Message bus (Redis or similar)
-
-**Role:** **Async command and event pipe** between control plane and workers.
-
-API publishes commands; workers consume and reply with events. Decouples processes and survives restarts better than direct HTTP into containers.
-
-### 8. Database
-
-**Role:** **Durable desired state + audit + vault metadata.**
-
-Users, nodes, vault entries, which strategies are attached to which node, intended run/stop state, config versions, command log, event log. Workers and Redis hold runtime truth; the DB holds what the system **should** look like and **what happened**.
+**Today:** shared PostgreSQL in `db/` — `users` table only. Node registry still in-memory in Conductor.
 
 ---
 
 ## General flow (happy path)
 
-High level only — no wire formats yet.
-
-### User uploads a strategy to the vault
+### Register and deploy (current)
 
 ```
-User → API: register strategy (import path + config template)
-     → DB: vault entry for this user
-     → UI: strategy appears in library
+User → API: register / login (JWT)
+     → API: POST /dashboard/deploy { strategy_id }
+     → Conductor: deploy command (user_id = username, Bybit creds from server env)
+     → Trading node: boots Nautilus, strategy STOPPED
+     → API: POST /dashboard/nodes/run { node_id }
+     → Conductor → TCP → strategy.start()
 ```
 
-No compilation or strategy generation in Conductor — validation is "can we import and construct this config" (detail TBD).
-
-### Deploy a node and attach a vault strategy
+### Target (vault + observe)
 
 ```
-User (UI)
-  → API: create node + pick vault strategy + config values + broker credentials
-  → DB: record node as pending; record desired strategy instance
-  → Node orchestrator: start Docker container with bootstrap (Nautilus TradingNodeConfig)
-  → Worker boots: broker connects; controller ready; strategy registered but may wait for start command
-  → Worker: publish ready / heartbeat events
-  → API: node ONLINE; UI shows node + attached strategy (stopped or running per policy)
+User → API: pick vault strategy + config + broker credentials
+     → DB: node record + desired state
+     → Conductor: spawn worker
+     → Worker: ready event
+     → Worker → observe:events → API → WebSocket → Frontend
 ```
-
-### Start / stop a strategy on an existing node
-
-```
-User (UI)
-  → API: start strategy instance X on node Y
-  → DB: update desired state; append command record
-  → Message bus: command to node Y
-  → In-node controller: start/stop via Nautilus Trader API
-  → Message bus: accepted / failed event
-  → API: persist event; UI updates status
-```
-
-### Change configuration
-
-```
-User (UI)
-  → API: apply new config to strategy instance X on node Y
-  → DB + message bus: same pattern as start/stop
-  → Controller: stop → reset → update config → start (or defer if not safe — e.g. open position)
-  → Events describe outcome (applied, pending, failed)
-```
-
-Config changes are **Nautilus strategy config** changes, not a separate config language.
 
 ---
 
-## How things wire together (conceptual)
-
-```
-┌──────────────┐
-│   Frontend   │
-└──────┬───────┘
-       │ HTTP
-┌──────▼───────┐         ┌─────────────┐     ┌──────────────┐
-│     API      │◄───────►│  Database   │     │ Strategy     │
-│ (control     │         │ (desired +  │     │ vault (per   │
-│  plane)      │         │  audit)     │     │ user)        │
-└──────┬───────┘         └─────────────┘     └──────────────┘
-       │
-       │ publish commands / consume events
-       │
-┌──────▼───────────────────────────────────┐
-│           Message bus                     │
-└──────┬───────────────────────┬───────────┘
-       │                       │
-┌──────▼──────────┐    ┌───────▼──────────┐
-│ Node            │    │ Worker container │
-│ orchestrator    │    │ Nautilus         │
-│ (Docker up/down)│    │ TradingNode      │
-└─────────────────┘    │  ┌─────────────┐ │
-                       │  │ Controller  │ │
-                       │  └──────┬──────┘ │
-                       │         │        │
-                       │  ┌──────▼──────┐ │
-                       │  │ Vault       │ │
-                       │  │ strategies  │ │
-                       │  │ (Nautilus)  │ │
-                       │  └─────────────┘ │
-                       └──────────────────┘
-                              │
-                              ▼
-                    Broker (IBKR, …)
-                    via Nautilus adapter
-```
-
-**Wiring rules:**
-
-- Frontend **only** talks to the API.
-- Workers **do not** expose public strategy control to the internet; they consume from the bus (or a private channel).
-- Node orchestrator **starts** containers; in-node controller **operates** what is inside them.
-- Every mutating action: **command in → event out**, with a correlation id.
-- Trading logic stays in **user vault code** + **Nautilus**; Conductor never executes custom order logic of its own.
-
----
-
-## Nautilus boundary (what we reuse vs what we build)
+## Nautilus boundary
 
 | Nautilus provides | Conductor provides |
 |-------------------|-------------------|
 | `Strategy`, `StrategyConfig`, indicators | Vault storage + deploy wiring |
-| `TradingNode`, engines, cache, msgbus | Docker worker + bootstrap |
-| Broker adapters (IBKR, …) | Credential storage + adapter config per user |
-| `ImportableStrategyConfig`, `Controller` | In-node controller handlers |
-| Live data subscriptions, order execution | UI/API to start/stop/monitor |
-| Backtest (local / user machine) | Optional later: hosted backtest is not v1 |
+| `TradingNode`, engines, cache, msgbus | Worker + bootstrap |
+| Broker adapters (Bybit, IBKR, …) | Credential config per user |
+| `ImportableStrategyConfig`, `Controller` | In-node control handlers |
+| Live data, order execution | UI/API to start/stop/monitor |
 
 Conductor should feel like **"run my Nautilus strategies in the cloud with a start/stop button"** — not a new trading framework.
 
 ---
 
-## Current learning path (this repo)
+## Where we are today
 
-Before the full platform, we learn Nautilus in stages:
-
-| Stage | Where | Purpose |
-|-------|--------|---------|
-| 1 | `learn/run_backtest.py`, `strategies/` | Strategy + backtest in one process |
-| 2 | `learn/run_ibkr_live.py` | Live IBKR + `TradingNode` |
-| 3 | `worker.py`, `control.py` | Remote start/stop (socket today → Redis later) |
-| 4 | API + DB + Docker + vault | Full Conductor |
-
-The prototype worker (`worker.py` + `control.py`) validates in-node control patterns that the production controller will use with Redis instead of a local socket.
+| Area | Status |
+|------|--------|
+| Conductor Node + Trading Node | Working — subprocess + Docker |
+| Redis control plane | Working — deploy/stop/list/run/halt/status/reset |
+| Bybit testnet broker | Working — default for dashboard deploy |
+| IBKR adapter | Code exists; deferred until TWS/Gateway ops |
+| API auth (register, login, JWT) | Working |
+| API dashboard (deploy, run, halt, stop) | Working — JWT + username as `user_id` |
+| Shared PostgreSQL (`db/`) | Working — users table |
+| Strategy catalog | In-repo fixed list (vault later) |
+| Frontend | Basic static UI; Bruno preferred for now |
+| Observe pipeline (positions, heartbeats) | Planned — Redis Streams |
+| Durable node records in DB | Planned |
+| Per-user vault upload | Planned |
 
 ---
 
-## What we are not committing to yet
+## Learning path (this repo)
 
-Left open for detailed design:
-
-- Exact vault format (git repo, zip upload, package registry lite)
-- Auth provider, multi-tenancy, billing
-- Second broker choice and timeline
-- Whether node orchestrator is a separate process or part of the API at first
-- Multi-host scheduling, Kubernetes
-- Hosted backtests, market data products, or research tools
-- Defer-until-safe config rules (beyond basic stop → reconfigure → start)
+| Stage | Where | Status |
+|-------|--------|--------|
+| 1 | `learn/`, `strategies/` | Backtest + example strategies |
+| 2 | `trading_node/brokers/` | Live Bybit + IBKR adapters |
+| 3 | `worker.py`, `control.py` | Early local socket prototype |
+| 4 | `conductor_node/`, Redis | Orchestrator — **done** |
+| 5 | `backend/`, `db/`, Bruno | Auth + dashboard control — **in progress** |
+| 6 | Vault, observe, production Frontend | **Next** |
 
 ---
 
 ## Success in one paragraph
 
-Conductor succeeds when a user can upload their Nautilus strategies to a vault, connect a supported broker, deploy a worker from the UI, attach a vault strategy with a config, start and stop it remotely, and trust the dashboard because every command and event is recorded — without SSH, without a custom strategy framework, and without brokers or features Nautilus does not already support.
-
-Detailed design (schemas, handlers, Dockerfiles, stream names, vault API) is the next document, written after this model feels clear.
+Conductor succeeds when a user can upload Nautilus strategies to a vault, connect a supported broker, deploy a worker from the UI, attach a strategy with config, start and stop it remotely, and trust the dashboard because every command and event is recorded — without SSH, without a custom strategy framework, and without brokers or features Nautilus does not already support.
 
 ---
 
-*Last updated: high-level vision. Scope = Nautilus-native, vault-based, small broker set. No implementation contract implied.*
+*Vision doc — product scope and roles. Implementation contracts live in ARCHITECTURE.md.*

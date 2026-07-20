@@ -1,0 +1,27 @@
+docs {
+  # Conductor API
+
+  Bruno collection for the Conductor FastAPI backend.
+
+  ## Setup
+
+  1. Open this folder in Bruno (**Open Collection**) → `backend/bruno`
+  2. Select environment **Local**
+     - `baseUrl` = `http://127.0.0.1:8000`
+     - `accessToken` = filled automatically by **auth/Login**
+  3. Start the backend (see `cmd.txt`)
+
+  ## Auth flow
+
+  1. Run **auth/Register** (once)
+  2. Run **auth/Login** — saves JWT into env var `accessToken`
+  3. All dashboard / Me requests send `Authorization: Bearer {{accessToken}}`
+
+  Do not paste tokens into request files. Re-run Login when the token expires.
+
+  ## Conventions
+
+  - `{{baseUrl}}` and `{{accessToken}}` come from the active environment
+  - Add new requests under folders matching OpenAPI tags (`auth`, `health`, `dashboard`, …)
+  - Keep request bodies in sync with `app/schemas/`
+}

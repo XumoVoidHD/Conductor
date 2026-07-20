@@ -52,6 +52,7 @@ def build_bootstrap_dict(
             "module": payload.strategy.module,
             "class_name": payload.strategy.class_name,
             "config_class": payload.strategy.config_class,
+            "config": dict(payload.strategy.config),
         },
     }
 
