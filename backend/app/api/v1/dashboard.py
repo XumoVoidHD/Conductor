@@ -68,12 +68,11 @@ def get_strategies(
 @router.post(
     "/strategies/register",
     status_code=status.HTTP_201_CREATED,
-    summary="Register a strategy from strategies/",
+    summary="Register a strategy artifact",
     description=(
-        "Pass a filename already present under the repo `strategies/` folder "
-        "(e.g. `running_ping` or `running_ping.py`). Metadata is discovered "
-        "from the module. ADMIN registers as SYSTEM (global); USER registers "
-        "as their own strategy."
+        "Provide either `filename` (local `strategies/` shorthand) or "
+        "`source_url` + `source_path` (local://, s3://, or gs://). "
+        "Full URI is source_url/source_path. ADMIN → SYSTEM/global; USER → owned."
     ),
     response_model=StrategyResponse,
 )
@@ -82,7 +81,14 @@ def register_strategy(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    return _service(current_user, db).register_strategy_from_file(payload.filename)
+    from shared.artifacts import ArtifactLocation
+
+    service = _service(current_user, db)
+    if payload.filename:
+        return service.register_strategy_from_file(payload.filename)
+    assert payload.source_url and payload.source_path
+    location = ArtifactLocation.from_parts(payload.source_url, payload.source_path)
+    return service.register_strategy_from_location(location)
 
 
 @router.post(

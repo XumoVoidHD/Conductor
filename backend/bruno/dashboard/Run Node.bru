@@ -10,16 +10,16 @@ post {
   auth: bearer
 }
 
-auth:bearer {
-  token: {{accessToken}}
-}
-
 headers {
   Content-Type: application/json
 }
 
+auth:bearer {
+  token: {{accessToken}}
+}
+
 body:json {
   {
-    "node_id": "tn-REPLACE_ME"
+    "node_id": "tn-a44babf5"
   }
 }

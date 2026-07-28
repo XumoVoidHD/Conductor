@@ -21,6 +21,9 @@ class StrategyBootstrap:
     class_name: str
     config_class: str
     config: dict[str, Any] = field(default_factory=dict)
+    source_url: str | None = None
+    source_path: str | None = None
+    artifact_dir: str | None = None
 
 
 @dataclass(frozen=True)
@@ -61,5 +64,8 @@ def load_bootstrap() -> TradingNodeBootstrap:
             class_name=str(strategy["class_name"]),
             config_class=str(strategy["config_class"]),
             config=dict(strategy.get("config") or {}),
+            source_url=strategy.get("source_url"),
+            source_path=strategy.get("source_path"),
+            artifact_dir=strategy.get("artifact_dir"),
         ),
     )

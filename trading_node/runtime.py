@@ -5,6 +5,7 @@ import asyncio
 import importlib
 import os
 import socket
+import sys
 import threading
 from dataclasses import dataclass
 from dataclasses import field
@@ -64,6 +65,11 @@ def _load_strategy(bootstrap: TradingNodeBootstrap) -> Strategy:
             f"unsupported strategy module '{spec.module}' "
             "(must be under strategies.*)",
         )
+
+    if spec.artifact_dir:
+        artifact_root = spec.artifact_dir
+        if artifact_root not in sys.path:
+            sys.path.insert(0, artifact_root)
 
     module = importlib.import_module(spec.module)
     strategy_cls = getattr(module, spec.class_name)

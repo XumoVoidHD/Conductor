@@ -37,6 +37,18 @@ def build_bootstrap_dict(
     assert payload.strategy is not None
 
     trader_id = payload.trader_id or f"CONDUCTOR-{node_id.upper()}"
+    strategy_block: dict[str, Any] = {
+        "module": payload.strategy.module,
+        "class_name": payload.strategy.class_name,
+        "config_class": payload.strategy.config_class,
+        "config": dict(payload.strategy.config),
+    }
+    if payload.strategy.source_url:
+        strategy_block["source_url"] = payload.strategy.source_url
+    if payload.strategy.source_path:
+        strategy_block["source_path"] = payload.strategy.source_path
+    if payload.strategy.artifact_dir:
+        strategy_block["artifact_dir"] = payload.strategy.artifact_dir
 
     return {
         "node_id": node_id,
@@ -48,13 +60,54 @@ def build_bootstrap_dict(
             "adapter": payload.broker.adapter,
             "config": dict(payload.broker.config),
         },
-        "strategy": {
-            "module": payload.strategy.module,
-            "class_name": payload.strategy.class_name,
-            "config_class": payload.strategy.config_class,
-            "config": dict(payload.strategy.config),
-        },
+        "strategy": strategy_block,
     }
+
+
+def _materialize_strategy_artifact(payload: DeployPayload, node_id: str) -> None:
+    """
+    If strategy has source_url + source_path, fetch into the node dir so the
+    trading node can import ``strategies.<slug>`` from artifact_dir.
+    """
+    assert payload.strategy is not None
+    source_url = payload.strategy.source_url
+    source_path = payload.strategy.source_path
+    if not source_url or not source_path:
+        return
+
+    from shared.artifacts import ArtifactLocation
+    from shared.artifacts import ArtifactStoreError
+    from shared.artifacts import materialize
+
+    location = ArtifactLocation.from_parts(source_url, source_path)
+    # Skip fetch when it's the baked-in repo strategies package (already on PYTHONPATH).
+    if location.scheme == "local" and location.local_root_key == "strategies":
+        return
+
+    dest_pkg = NODES_DIR / node_id / "artifacts" / "strategies"
+    dest_pkg.mkdir(parents=True, exist_ok=True)
+    (dest_pkg / "__init__.py").write_text("", encoding="utf-8")
+    try:
+        src_file = materialize(location, dest_dir=dest_pkg)
+    except ArtifactStoreError as exc:
+        raise ValueError(str(exc)) from exc
+
+    # Ensure filename matches module stem (strategies.<slug>)
+    slug = Path(source_path).stem
+    target = dest_pkg / f"{slug}.py"
+    if src_file.resolve() != target.resolve():
+        target.write_bytes(src_file.read_bytes())
+
+    # Parent of ``strategies/`` package — path as seen inside the trading node.
+    if runtime_is_docker():
+        payload.strategy.artifact_dir = f"/app/data/nodes/{node_id}/artifacts"
+    else:
+        payload.strategy.artifact_dir = str((NODES_DIR / node_id / "artifacts").resolve())
+    payload.strategy.module = f"strategies.{slug}"
+
+
+def runtime_is_docker() -> bool:
+    return NODE_RUNTIME == "docker"
 
 
 def write_bootstrap(node_id: str, bootstrap: dict[str, Any]) -> Path:
@@ -94,6 +147,8 @@ def spawn_trading_node(
     assert payload.broker is not None
     control_port = registry.allocate_control_port(payload.control_port, runtime=runtime)
     control_host = _control_host_for_runtime(payload, node_id=node_id, runtime=runtime)
+
+    _materialize_strategy_artifact(payload, node_id)
 
     bootstrap = build_bootstrap_dict(
         payload,

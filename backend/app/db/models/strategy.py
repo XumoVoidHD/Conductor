@@ -1,4 +1,26 @@
-"""Strategy vault ORM models."""
+"""
+Tables:
+
+  strategies
+    Vault of runnable Nautilus strategy definitions.
+    Columns:
+      id, slug (unique), name, description
+      module, class_name, config_class   — import paths for the trading node
+      default_config (JSONB)
+      requires_market_data
+      is_global                         — True = everyone can use
+      created_by_user_id                — NULL means created by SYSTEM
+      source_url                        — base locator (local://strategies | s3://bucket | gs://bucket)
+      source_path                       — object/path within that base
+      created_at, updated_at
+    Full artifact URI is always source_url + '/' + source_path (see source_uri).
+
+  strategy_access
+    Shares a non-global strategy with another user.
+    Columns:
+      id, strategy_id, user_id, granted_by_user_id, created_at
+    Unique (strategy_id, user_id).
+"""
 from __future__ import annotations
 
 import uuid
@@ -25,6 +47,7 @@ if TYPE_CHECKING:
     from app.db.models.user import User
 
 SYSTEM_CREATOR = "SYSTEM"
+DEFAULT_LOCAL_SOURCE_URL = "local://strategies"
 
 
 class Strategy(Base):
@@ -67,6 +90,13 @@ class Strategy(Base):
         nullable=True,
         index=True,
     )
+    # Artifact location — full URI = source_url + "/" + source_path
+    source_url: Mapped[str] = mapped_column(
+        String(512),
+        nullable=False,
+        server_default=DEFAULT_LOCAL_SOURCE_URL,
+    )
+    source_path: Mapped[str] = mapped_column(String(512), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -90,6 +120,13 @@ class Strategy(Base):
     )
 
     @property
+    def source_uri(self) -> str:
+        """Full artifact locator built from source_url + source_path."""
+        base = (self.source_url or "").rstrip("/")
+        path = (self.source_path or "").lstrip("/")
+        return f"{base}/{path}"
+
+    @property
     def creator_label(self) -> str:
         if self.created_by_user_id is None:
             return SYSTEM_CREATOR
@@ -98,7 +135,7 @@ class Strategy(Base):
         return SYSTEM_CREATOR
 
     def __repr__(self) -> str:
-        return f"<Strategy slug={self.slug!r} global={self.is_global}>"
+        return f"<Strategy slug={self.slug!r} global={self.is_global} uri={self.source_uri!r}>"
 
 
 class StrategyAccess(Base):

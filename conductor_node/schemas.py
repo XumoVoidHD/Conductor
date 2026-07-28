@@ -27,6 +27,10 @@ class StrategyDeployConfig:
     class_name: str
     config_class: str
     config: dict[str, Any] = field(default_factory=dict)
+    source_url: str | None = None
+    source_path: str | None = None
+    # Set by Conductor after materializing a cloud/local artifact into the node dir.
+    artifact_dir: str | None = None
 
 
 @dataclass
@@ -117,6 +121,9 @@ def _parse_strategy(strategy_raw: dict[str, Any]) -> StrategyDeployConfig:
         class_name=str(class_name),
         config_class=str(config_class),
         config=dict(strategy_raw.get("config") or {}),
+        source_url=strategy_raw.get("source_url"),
+        source_path=strategy_raw.get("source_path"),
+        artifact_dir=strategy_raw.get("artifact_dir"),
     )
 
 

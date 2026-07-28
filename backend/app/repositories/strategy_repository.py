@@ -77,6 +77,8 @@ class StrategyRepository:
         default_config: dict[str, Any],
         requires_market_data: bool,
         created_by_user_id: uuid.UUID | None,
+        source_url: str,
+        source_path: str,
         is_global: bool = False,
     ) -> Strategy:
         if is_global and created_by_user_id is not None:
@@ -95,6 +97,8 @@ class StrategyRepository:
             requires_market_data=requires_market_data,
             is_global=is_global,
             created_by_user_id=created_by_user_id,
+            source_url=source_url.rstrip("/"),
+            source_path=source_path.lstrip("/"),
         )
         self._db.add(strategy)
         self._db.commit()
@@ -141,4 +145,7 @@ class StrategyRepository:
             "requires_market_data": strategy.requires_market_data,
             "is_global": strategy.is_global,
             "created_by": strategy.creator_label,
+            "source_url": strategy.source_url,
+            "source_path": strategy.source_path,
+            "source_uri": strategy.source_uri,
         }

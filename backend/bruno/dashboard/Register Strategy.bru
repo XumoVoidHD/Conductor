@@ -25,12 +25,20 @@ body:json {
 }
 
 docs {
-  Register a strategy file from the repo `strategies/` folder.
+  Register a strategy artifact.
 
-  Body: `{ "filename": "running_ping" }` or `"running_ping.py"`.
+  **Local (shorthand):**
+  `{ "filename": "running_ping.py" }`
+  → source_url=`local://strategies`, source_path=`running_ping.py`
+  → source_uri=`local://strategies/running_ping.py`
 
-  - ADMIN → registered as SYSTEM / global (`created_by: "SYSTEM"`)
-  - USER → owned by the authenticated username
+  **Explicit local / S3 / GCS:**
+  ```json
+  { "source_url": "s3://my-bucket", "source_path": "users/alice/ema_cross.py" }
+  { "source_url": "gs://my-bucket", "source_path": "vault/foo.py" }
+  { "source_url": "local://strategies", "source_path": "hello_bars.py" }
+  ```
 
-  File must already exist under `strategies/`. Discovery reads Strategy + StrategyConfig classes.
+  ADMIN → SYSTEM / global. USER → owned by username.
+  Cloud downloads use AWS/GCP default credentials from the environment.
 }

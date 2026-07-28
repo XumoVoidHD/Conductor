@@ -32,17 +32,33 @@ class DashboardService:
         return [StrategyRepository.to_api_dict(row) for row in rows]
 
     def register_strategy_from_file(self, filename: str) -> dict[str, Any]:
+        from shared.artifacts import ArtifactLocation
+
+        return self.register_strategy_from_location(
+            ArtifactLocation.local_strategies(filename),
+        )
+
+    def register_strategy_from_location(self, location) -> dict[str, Any]:
         """
-        Register a strategy that already exists under ``strategies/<file>.py``.
+        Register a strategy from ``source_url`` + ``source_path``.
 
         - ADMIN → global SYSTEM strategy (created_by_user_id=NULL, is_global=True)
         - USER  → owned by this user (is_global=False)
+
+        Artifact is materialized (local open / S3 / GCS download) for discovery.
         """
         from app.db.models.user import UserRole
-        from app.services.strategy_discovery import discover_strategy_from_file
+        from app.services.strategy_discovery import discover_strategy_from_location
+        from shared.artifacts import ArtifactLocation
+
+        if not isinstance(location, ArtifactLocation):
+            location = ArtifactLocation.from_parts(
+                location.source_url,
+                location.source_path,
+            )
 
         try:
-            discovered = discover_strategy_from_file(filename)
+            discovered = discover_strategy_from_location(location)
         except FileNotFoundError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -72,10 +88,13 @@ class DashboardService:
             requires_market_data=discovered.requires_market_data,
             created_by_user_id=None if as_system else self._user.id,
             is_global=as_system,
+            source_url=discovered.source_url,
+            source_path=discovered.source_path,
         )
         logger.info(
-            "Registered strategy slug=%s as %s by user=%s",
+            "Registered strategy slug=%s uri=%s as %s by user=%s",
             discovered.slug,
+            discovered.source_uri,
             "SYSTEM" if as_system else self._user.username,
             self._user.username,
         )
@@ -189,12 +208,15 @@ class DashboardService:
                     "class_name": strategy.class_name,
                     "config_class": strategy.config_class,
                     "config": strategy_config,
+                    "source_url": strategy.source_url,
+                    "source_path": strategy.source_path,
                 },
             },
         }
         logger.info(
-            "Deploying strategy_id=%s user_id=%s created_by=%s",
+            "Deploying strategy_id=%s uri=%s user_id=%s created_by=%s",
             strategy_id,
+            strategy.source_uri,
             self._user_id,
             strategy.creator_label,
         )
