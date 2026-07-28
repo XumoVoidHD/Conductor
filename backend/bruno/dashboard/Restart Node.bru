@@ -1,11 +1,11 @@
 meta {
-  name: Stop Node
+  name: Restart Node
   type: http
-  seq: 7
+  seq: 8
 }
 
 post {
-  url: {{baseUrl}}/api/v1/dashboard/nodes/stop
+  url: {{baseUrl}}/api/v1/dashboard/nodes/restart
   body: json
   auth: bearer
 }
@@ -25,6 +25,5 @@ body:json {
 }
 
 docs {
-  Stop the container/process but keep the trading_nodes slot.
-  Use Delete Node to free quota.
+  Restart the trading node container/process. Strategy comes back STOPPED — call Run.
 }

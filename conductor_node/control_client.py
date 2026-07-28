@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import socket
+import time
 
 
 def send_control_command(
@@ -22,3 +23,34 @@ def send_control_command(
         raise ConnectionError(f"control socket error ({host}:{port}): {exc}") from exc
 
     return data.decode("utf-8").strip()
+
+
+def wait_for_control(
+    host: str,
+    port: int,
+    *,
+    timeout_sec: float = 45.0,
+    interval_sec: float = 0.5,
+) -> None:
+    """Block until the node's control TCP port accepts connections."""
+    deadline = time.monotonic() + timeout_sec
+    last_err: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=2.0):
+                return
+        except OSError as exc:
+            last_err = exc
+            time.sleep(interval_sec)
+    raise ConnectionError(
+        f"control port {host}:{port} not ready after {timeout_sec:.0f}s"
+        + (f" ({last_err})" if last_err else ""),
+    )
+
+
+def is_control_ready(host: str, port: int, *, timeout_sec: float = 1.5) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout_sec):
+            return True
+    except OSError:
+        return False

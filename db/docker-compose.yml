@@ -1,7 +1,7 @@
 # Deprecated — Postgres (and the rest of core) live in conductor-core/.
 #
 # Use:
-#   docker compose -f conductor-core/docker-compose.yml up -d postgres
+#   docker compose -f conductor-core/compose.yaml up -d postgres
 #
 # This stub remains so old scripts that point at db/docker-compose.yml fail loudly
 # with a clear message instead of silently creating a second Postgres.
@@ -14,5 +14,5 @@ services:
       [
         "sh",
         "-c",
-        "echo 'db/docker-compose.yml is retired. Use conductor-core/docker-compose.yml' && exit 1",
+        "echo 'db/docker-compose.yml is retired. Use conductor-core/compose.yaml' && exit 1",
       ]

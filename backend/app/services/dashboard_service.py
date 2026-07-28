@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.db.models.user import User
 from app.repositories.strategy_repository import StrategyRepository
+from app.repositories.trading_node_repository import TradingNodeRepository
 from app.repositories.user_repository import UserRepository
 from app.services.conductor_client import ConductorClient
 
@@ -23,6 +24,7 @@ class DashboardService:
         self._conductor = ConductorClient()
         self._db = db
         self._strategies = StrategyRepository(db)
+        self._nodes = TradingNodeRepository(db)
         # Conductor multi-tenancy key = authenticated username (never trust client body).
         self._user_id = user.username
         self._user = user
@@ -147,16 +149,67 @@ class DashboardService:
             "user_id": self._user_id,
         }
 
+    def _live_nodes_by_id(self) -> dict[str, dict[str, Any]]:
+        """Best-effort live probe from Conductor; empty if Conductor is down."""
+        try:
+            event = self._conductor.enqueue_and_wait(
+                {
+                    "command": "list",
+                    "user_id": self._user_id,
+                    "payload": {},
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — list should still work from DB
+            logger.warning("Conductor list failed during node merge: %s", exc)
+            return {}
+        if event.get("status") == "error":
+            logger.warning("Conductor list error: %s", event.get("message"))
+            return {}
+        nodes = (event.get("data") or {}).get("nodes", [])
+        return {str(n["node_id"]): n for n in nodes if n.get("node_id")}
+
     def list_nodes(self) -> dict[str, Any]:
-        event = self._conductor.enqueue_and_wait(
-            {
-                "command": "list",
-                "user_id": self._user_id,
-                "payload": {},
+        rows = self._nodes.list_active_for_user(self._user.id)
+        live_by_id = self._live_nodes_by_id()
+
+        nodes: list[dict[str, Any]] = []
+        for row in rows:
+            live = live_by_id.get(row.node_id)
+            if live and live.get("status") and live["status"] != row.status:
+                updated = self._nodes.update_status(
+                    row.node_id,
+                    status=str(live["status"]),
+                    control_host=live.get("control_host"),
+                    control_port=live.get("control_port"),
+                    container_id=live.get("container_id"),
+                )
+                if updated is not None:
+                    row = updated
+            nodes.append(TradingNodeRepository.to_api_dict(row, live=live))
+
+        return {
+            "status": "ok",
+            "message": f"{len(nodes)} node(s)",
+            "data": {
+                "nodes": nodes,
+                "node_count": len(nodes),
+                "max_trading_nodes": self._user.trading_nodes,
             },
-        )
-        self._raise_if_error(event)
-        return event
+        }
+
+    def _assert_node_quota(self) -> None:
+        """Stopped nodes still count — only delete frees a slot."""
+        used = self._nodes.count_active_for_user(self._user.id)
+        limit = int(self._user.trading_nodes)
+        if used >= limit:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"Trading node limit reached ({used}/{limit}). "
+                    "Delete a node before deploying another. "
+                    "Stopping a node does not free a slot."
+                ),
+            )
 
     def deploy_strategy(
         self,
@@ -164,6 +217,8 @@ class DashboardService:
         *,
         config_overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        self._assert_node_quota()
+
         strategy = self._strategies.get_accessible_by_slug(self._user.id, strategy_id)
         if strategy is None:
             raise HTTPException(
@@ -193,6 +248,7 @@ class DashboardService:
             "command": "deploy",
             "user_id": self._user_id,
             "payload": {
+                "max_trading_nodes": self._user.trading_nodes,
                 "broker": {
                     "adapter": "bybit",
                     "config": {
@@ -214,33 +270,88 @@ class DashboardService:
             },
         }
         logger.info(
-            "Deploying strategy_id=%s uri=%s user_id=%s created_by=%s",
+            "Deploying strategy_id=%s uri=%s user_id=%s created_by=%s quota=%s",
             strategy_id,
             strategy.source_uri,
             self._user_id,
             strategy.creator_label,
+            self._user.trading_nodes,
         )
         event = self._conductor.enqueue_and_wait(command)
         self._raise_if_error(event)
+
+        data = event.get("data") or {}
+        node_id = str(event.get("node_id") or "")
+        if node_id:
+            container_name = (
+                f"conductor-{node_id}" if data.get("runtime") == "docker" else None
+            )
+            self._nodes.create(
+                node_id=node_id,
+                user_id=self._user.id,
+                strategy_id=strategy.id,
+                strategy_slug=strategy.slug,
+                strategy_name=strategy.name,
+                strategy_module=strategy.module,
+                strategy_class_name=strategy.class_name,
+                strategy_config=strategy_config,
+                broker_adapter=str(data.get("broker_adapter") or "bybit"),
+                runtime=str(data.get("runtime") or "docker"),
+                status=str(data.get("status") or "Initializing"),
+                control_host=data.get("control_host"),
+                control_port=data.get("control_port"),
+                container_id=data.get("container_id"),
+                container_name=container_name,
+                bootstrap_path=data.get("bootstrap_path"),
+            )
         return event
 
     def node_action(self, action: str, node_id: str) -> dict[str, Any]:
-        if action not in {"run", "halt", "status", "reset", "stop"}:
+        allowed = {"run", "stop", "status", "restart", "delete", "halt", "reset"}
+        if action not in allowed:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Unsupported action '{action}'",
             )
+
+        owned = self._nodes.get_by_node_id(node_id)
+        if owned is None or owned.user_id != self._user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Node '{node_id}' not found for your account.",
+            )
+
         command: dict[str, Any] = {
             "command": action,
             "user_id": self._user_id,
             "node_id": node_id,
             "payload": {},
         }
-        if action == "stop":
+        if action in {"stop", "delete"}:
             command["payload"] = {"graceful": True}
 
         event = self._conductor.enqueue_and_wait(command)
         self._raise_if_error(event)
+
+        data = event.get("data") or {}
+        if action == "delete":
+            self._nodes.soft_delete(node_id)
+        else:
+            status_value = data.get("status")
+            if not status_value and action == "stop":
+                status_value = "Stopped"
+            if not status_value and action == "run":
+                status_value = "Running"
+            if not status_value and action == "restart":
+                status_value = "Initializing"
+            if status_value:
+                self._nodes.update_status(
+                    node_id,
+                    status=str(status_value),
+                    control_host=data.get("control_host"),
+                    control_port=data.get("control_port"),
+                    container_id=data.get("container_id"),
+                )
         return event
 
     @staticmethod

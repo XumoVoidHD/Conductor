@@ -1,8 +1,13 @@
 """Conductor Node command handlers."""
 from __future__ import annotations
 
+from conductor_node.control_client import is_control_ready
 from conductor_node.control_client import send_control_command
+from conductor_node.control_client import wait_for_control
+from conductor_node.deploy import delete_trading_node
+from conductor_node.deploy import restart_trading_node
 from conductor_node.deploy import spawn_trading_node
+from conductor_node.deploy import start_trading_node
 from conductor_node.deploy import stop_trading_node
 from conductor_node.registry import NodeRegistry
 from conductor_node.registry import RunningNode
@@ -10,7 +15,100 @@ from conductor_node.schemas import ConductorCommand
 from conductor_node.schemas import ConductorEvent
 from conductor_node.schemas import parse_deploy_payload
 
-STRATEGY_CONTROL_COMMANDS = frozenset({"run", "halt", "status", "reset"})
+# Strategy TCP commands (node process must be running and control-ready).
+STRATEGY_CONTROL_COMMANDS = frozenset({"halt", "reset"})
+
+
+def _parse_strategy_state(control_reply: str) -> str | None:
+    """Extract strategy=running|stopped|missing from a status reply."""
+    text = control_reply.strip()
+    marker = "strategy="
+    idx = text.lower().find(marker)
+    if idx < 0:
+        return None
+    value = text[idx + len(marker) :].split()[0].strip().lower()
+    return value or None
+
+
+def _probe_node(node: RunningNode) -> dict:
+    """
+    User-facing status for a node:
+      Stopped      — container/process not running
+      Initializing — process up but control socket not ready yet
+      Ready        — control ready, strategy not running
+      Running      — strategy running
+    """
+    alive = node.is_alive()
+    base = {
+        "node_id": node.node_id,
+        "user_id": node.user_id,
+        "alive": alive,
+        "broker_adapter": node.broker_adapter,
+        "control_host": node.control_host,
+        "control_port": node.control_port,
+    }
+    if not alive:
+        # Just after deploy/restart the container may not report running yet.
+        if node.deploy_status in {"INITIALIZING", "DEPLOYED"}:
+            return {
+                **base,
+                "status": "Initializing",
+                "ready": False,
+                "strategy": None,
+                "deploy_status": "INITIALIZING",
+            }
+        node.deploy_status = "STOPPED"
+        return {
+            **base,
+            "status": "Stopped",
+            "ready": False,
+            "strategy": None,
+            "deploy_status": node.deploy_status,
+        }
+
+    if not is_control_ready(node.control_host, node.control_port):
+        node.deploy_status = "INITIALIZING"
+        return {
+            **base,
+            "status": "Initializing",
+            "ready": False,
+            "strategy": None,
+            "deploy_status": node.deploy_status,
+        }
+
+    try:
+        reply = send_control_command(
+            node.control_host,
+            node.control_port,
+            "status",
+            timeout_sec=3.0,
+        )
+    except ConnectionError:
+        node.deploy_status = "INITIALIZING"
+        return {
+            **base,
+            "status": "Initializing",
+            "ready": False,
+            "strategy": None,
+            "deploy_status": node.deploy_status,
+        }
+
+    strategy = _parse_strategy_state(reply)
+    if strategy == "running":
+        display = "Running"
+        node.deploy_status = "RUNNING"
+    else:
+        display = "Ready"
+        node.deploy_status = "READY"
+
+    return {
+        **base,
+        "status": display,
+        "ready": True,
+        "strategy": strategy,
+        "deploy_status": node.deploy_status,
+        "control_reply": reply,
+    }
 
 
 class CommandHandler:
@@ -23,6 +121,14 @@ class CommandHandler:
                 return self._deploy(cmd)
             if cmd.command == "stop":
                 return self._stop(cmd)
+            if cmd.command == "delete":
+                return self._delete(cmd)
+            if cmd.command == "restart":
+                return self._restart(cmd)
+            if cmd.command == "run":
+                return self._run(cmd)
+            if cmd.command == "status":
+                return self._status(cmd)
             if cmd.command == "list":
                 return self._list(cmd)
             if cmd.command in STRATEGY_CONTROL_COMMANDS:
@@ -33,7 +139,7 @@ class CommandHandler:
                 status="error",
                 message=(
                     f"unknown command '{cmd.command}' "
-                    "(use deploy, stop, list, run, halt, status, reset)"
+                    "(use deploy, stop, delete, restart, list, run, halt, status, reset)"
                 ),
                 user_id=cmd.user_id,
                 node_id=cmd.node_id,
@@ -68,6 +174,28 @@ class CommandHandler:
     def _require_node(self, cmd: ConductorCommand) -> RunningNode:
         return self._get_owned_node(cmd, require_alive=True)
 
+    def _ensure_control_ready(self, node: RunningNode) -> None:
+        """Start if needed, then wait until commands can be pushed."""
+        if not node.is_alive():
+            start_trading_node(node)
+            return
+        wait_for_control(node.control_host, node.control_port)
+
+    def _node_data(self, node: RunningNode) -> dict:
+        probed = _probe_node(node)
+        return {
+            "status": probed["status"],
+            "ready": probed["ready"],
+            "alive": probed["alive"],
+            "strategy": probed.get("strategy"),
+            "deploy_status": probed["deploy_status"],
+            "broker_adapter": node.broker_adapter,
+            "bootstrap_path": node.bootstrap_path,
+            "control_host": node.control_host,
+            "control_port": node.control_port,
+            "control_reply": probed.get("control_reply"),
+        }
+
     def _deploy(self, cmd: ConductorCommand) -> ConductorEvent:
         payload = parse_deploy_payload(cmd)
         if cmd.user_id:
@@ -75,25 +203,36 @@ class CommandHandler:
         if not payload.user_id:
             raise ValueError("user_id is required")
 
+        max_nodes = cmd.payload.get("max_trading_nodes")
+        if max_nodes is not None:
+            current = len(self._registry.list_for_user(payload.user_id))
+            limit = int(max_nodes)
+            if current >= limit:
+                raise ValueError(
+                    f"trading node limit reached ({current}/{limit}); "
+                    "delete a node before deploying another",
+                )
+
         running = spawn_trading_node(payload, self._registry)
-        data: dict = {
-            "deploy_status": running.deploy_status,
+        running.deploy_status = "INITIALIZING"
+        data = {
+            "status": "Initializing",
+            "ready": False,
+            "alive": running.is_alive(),
+            "strategy": None,
+            "deploy_status": "INITIALIZING",
+            "broker_adapter": running.broker_adapter,
             "runtime": running.runtime,
             "control_host": running.control_host,
             "control_port": running.control_port,
-            "broker_adapter": running.broker_adapter,
+            "container_id": running.container_id,
             "bootstrap_path": running.bootstrap_path,
         }
-        if running.runtime == "subprocess" and running.process is not None:
-            data["pid"] = running.process.pid
-        if running.runtime == "docker" and running.container_id is not None:
-            data["container_id"] = running.container_id
-
         return ConductorEvent(
             correlation_id=cmd.correlation_id,
             command=cmd.command,
             status="ok",
-            message="trading node deployed",
+            message="trading node deployed — initializing until control is ready",
             user_id=running.user_id,
             node_id=running.node_id,
             data=data,
@@ -103,16 +242,74 @@ class CommandHandler:
         node = self._get_owned_node(cmd, require_alive=False)
         graceful = bool(cmd.payload.get("graceful", True))
         stop_trading_node(node, graceful=graceful)
+
+        return ConductorEvent(
+            correlation_id=cmd.correlation_id,
+            command=cmd.command,
+            status="ok",
+            message="trading node stopped (slot still reserved — use delete to free)",
+            user_id=node.user_id,
+            node_id=node.node_id,
+            data=self._node_data(node),
+        )
+
+    def _delete(self, cmd: ConductorCommand) -> ConductorEvent:
+        node = self._get_owned_node(cmd, require_alive=False)
+        graceful = bool(cmd.payload.get("graceful", True))
+        delete_trading_node(node, graceful=graceful)
         self._registry.remove(node.node_id)
 
         return ConductorEvent(
             correlation_id=cmd.correlation_id,
             command=cmd.command,
             status="ok",
-            message="trading node stopped",
+            message="trading node deleted",
             user_id=node.user_id,
             node_id=node.node_id,
-            data={"deploy_status": node.deploy_status, "runtime": node.runtime},
+            data={"status": "Deleted", "deploy_status": "DELETED"},
+        )
+
+    def _restart(self, cmd: ConductorCommand) -> ConductorEvent:
+        node = self._get_owned_node(cmd, require_alive=False)
+        restart_trading_node(node)
+        return ConductorEvent(
+            correlation_id=cmd.correlation_id,
+            command=cmd.command,
+            status="ok",
+            message="trading node restarted (strategy Ready — call run)",
+            user_id=node.user_id,
+            node_id=node.node_id,
+            data=self._node_data(node),
+        )
+
+    def _run(self, cmd: ConductorCommand) -> ConductorEvent:
+        node = self._get_owned_node(cmd, require_alive=False)
+        self._ensure_control_ready(node)
+        reply = send_control_command(node.control_host, node.control_port, "run")
+        status = "ok" if reply.startswith("OK") else "error"
+        data = self._node_data(node)
+        data["control_reply"] = reply
+        return ConductorEvent(
+            correlation_id=cmd.correlation_id,
+            command=cmd.command,
+            status=status,
+            message=reply,
+            user_id=node.user_id,
+            node_id=node.node_id,
+            data=data,
+        )
+
+    def _status(self, cmd: ConductorCommand) -> ConductorEvent:
+        node = self._get_owned_node(cmd, require_alive=False)
+        data = self._node_data(node)
+        return ConductorEvent(
+            correlation_id=cmd.correlation_id,
+            command=cmd.command,
+            status="ok",
+            message=data.get("control_reply") or data["status"],
+            user_id=node.user_id,
+            node_id=node.node_id,
+            data=data,
         )
 
     def _list(self, cmd: ConductorCommand) -> ConductorEvent:
@@ -121,36 +318,39 @@ class CommandHandler:
             raise ValueError("user_id is required for list")
 
         nodes = self._registry.list_for_user(str(user_id))
+        probed = [_probe_node(n) for n in nodes]
+        public_nodes = [
+            {
+                "node_id": p["node_id"],
+                "status": p["status"],
+                "alive": p["alive"],
+                "ready": p["ready"],
+                "strategy": p.get("strategy"),
+                "broker_adapter": p["broker_adapter"],
+                "deploy_status": p["deploy_status"],
+            }
+            for p in probed
+        ]
         return ConductorEvent(
             correlation_id=cmd.correlation_id,
             command=cmd.command,
             status="ok",
-            message=f"{len(nodes)} node(s)",
+            message=f"{len(public_nodes)} node(s)",
             user_id=str(user_id),
             data={
-                "nodes": [
-                    {
-                        "node_id": n.node_id,
-                        "user_id": n.user_id,
-                        "deploy_status": n.deploy_status,
-                        "alive": n.is_alive(),
-                        "runtime": n.runtime,
-                        "control_host": n.control_host,
-                        "control_port": n.control_port,
-                        "broker_adapter": n.broker_adapter,
-                        "pid": n.process.pid if n.runtime == "subprocess" and n.is_alive() else None,
-                        "container_id": n.container_id if n.runtime == "docker" else None,
-                    }
-                    for n in nodes
-                ],
+                "nodes": public_nodes,
+                "node_count": len(public_nodes),
             },
         )
 
     def _strategy_control(self, cmd: ConductorCommand) -> ConductorEvent:
         node = self._require_node(cmd)
+        self._ensure_control_ready(node)
         reply = send_control_command(node.control_host, node.control_port, cmd.command)
 
         status = "ok" if reply.startswith("OK") else "error"
+        data = self._node_data(node)
+        data["control_reply"] = reply
         return ConductorEvent(
             correlation_id=cmd.correlation_id,
             command=cmd.command,
@@ -158,5 +358,5 @@ class CommandHandler:
             message=reply,
             user_id=node.user_id,
             node_id=node.node_id,
-            data={"control_reply": reply, "runtime": node.runtime},
+            data=data,
         )

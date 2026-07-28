@@ -183,11 +183,28 @@ def main() -> None:
     deploy.add_argument("--ib-exchange")
     deploy.add_argument("--ib-currency")
 
-    stop = sub.add_parser("stop", help="Stop a trading node")
+    stop = sub.add_parser(
+        "stop",
+        help="Stop a trading node (keeps slot — use delete to free quota)",
+    )
     stop.add_argument("--user-id", required=True)
     stop.add_argument("--node-id", required=True)
     stop.add_argument("--correlation-id")
     stop.add_argument("--no-graceful", action="store_true")
+
+    delete = sub.add_parser(
+        "delete",
+        help="Delete a trading node container and free the slot",
+    )
+    delete.add_argument("--user-id", required=True)
+    delete.add_argument("--node-id", required=True)
+    delete.add_argument("--correlation-id")
+    delete.add_argument("--no-graceful", action="store_true")
+
+    restart = sub.add_parser("restart", help="Restart a trading node")
+    restart.add_argument("--user-id", required=True)
+    restart.add_argument("--node-id", required=True)
+    restart.add_argument("--correlation-id")
 
     list_cmd = sub.add_parser("list", help="List nodes for a user")
     list_cmd.add_argument("--user-id", required=True)
@@ -226,15 +243,15 @@ def main() -> None:
 
     if args.action == "deploy":
         command = _build_deploy_command(args)
-    elif args.action == "stop":
+    elif args.action in ("stop", "delete"):
         command = {
-            "command": "stop",
+            "command": args.action,
             "correlation_id": args.correlation_id or str(uuid.uuid4()),
             "user_id": args.user_id,
             "node_id": args.node_id,
             "payload": {"graceful": not args.no_graceful},
         }
-    elif args.action in ("run", "halt", "status", "reset"):
+    elif args.action in ("run", "halt", "status", "reset", "restart"):
         command = {
             "command": args.action,
             "correlation_id": args.correlation_id or str(uuid.uuid4()),

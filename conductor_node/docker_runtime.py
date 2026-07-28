@@ -113,6 +113,25 @@ def spawn_trading_node_container(
         raise ValueError(f"docker run failed for {name}: {exc}") from exc
 
 
+def _graceful_shutdown(
+    container: Container,
+    *,
+    control_host: str,
+    control_port: int,
+) -> bool:
+    """Ask the node to shut down via TCP. Returns True if the container exited."""
+    if container.status != "running":
+        return True
+    try:
+        from conductor_node.control_client import send_control_command
+
+        send_control_command(control_host, control_port, "shutdown", timeout_sec=10.0)
+        container.wait(timeout=20)
+        return True
+    except (ConnectionError, APIError):
+        return False
+
+
 def stop_trading_node_container(
     container_id: str,
     *,
@@ -120,21 +139,82 @@ def stop_trading_node_container(
     control_host: str,
     control_port: int,
 ) -> None:
+    """Stop the container but keep it (slot still occupied until delete)."""
     client = _client()
-    container = client.containers.get(container_id)
+    try:
+        container = client.containers.get(container_id)
+    except NotFound:
+        return
 
-    if graceful and container.status == "running":
-        try:
-            from conductor_node.control_client import send_control_command
+    if container.status != "running":
+        return
 
-            send_control_command(control_host, control_port, "shutdown", timeout_sec=10.0)
-            container.wait(timeout=20)
-            return
-        except (ConnectionError, APIError):
-            pass
+    if graceful and _graceful_shutdown(
+        container,
+        control_host=control_host,
+        control_port=control_port,
+    ):
+        return
 
     container.stop(timeout=15)
-    container.remove(force=True)
+
+
+def start_trading_node_container(container_id: str) -> None:
+    client = _client()
+    try:
+        container = client.containers.get(container_id)
+    except NotFound as exc:
+        raise ValueError(f"container {container_id} not found — redeploy the node") from exc
+    if container.status == "running":
+        return
+    try:
+        container.start()
+    except APIError as exc:
+        raise ValueError(f"docker start failed: {exc}") from exc
+
+
+def restart_trading_node_container(container_id: str) -> None:
+    client = _client()
+    try:
+        container = client.containers.get(container_id)
+    except NotFound as exc:
+        raise ValueError(f"container {container_id} not found — redeploy the node") from exc
+    try:
+        container.restart(timeout=15)
+    except APIError as exc:
+        raise ValueError(f"docker restart failed: {exc}") from exc
+
+
+def delete_trading_node_container(
+    container_id: str,
+    *,
+    graceful: bool,
+    control_host: str,
+    control_port: int,
+) -> None:
+    """Stop and remove the container (frees the user's node slot)."""
+    client = _client()
+    try:
+        container = client.containers.get(container_id)
+    except NotFound:
+        return
+
+    if graceful and container.status == "running":
+        _graceful_shutdown(
+            container,
+            control_host=control_host,
+            control_port=control_port,
+        )
+
+    try:
+        container.reload()
+        if container.status == "running":
+            container.stop(timeout=15)
+        container.remove(force=True)
+    except NotFound:
+        return
+    except APIError as exc:
+        raise ValueError(f"docker remove failed: {exc}") from exc
 
 
 def is_container_alive(container_id: str) -> bool:
@@ -144,3 +224,12 @@ def is_container_alive(container_id: str) -> bool:
     except NotFound:
         return False
     return container.status == "running"
+
+
+def container_exists(container_id: str) -> bool:
+    client = _client()
+    try:
+        client.containers.get(container_id)
+    except NotFound:
+        return False
+    return True

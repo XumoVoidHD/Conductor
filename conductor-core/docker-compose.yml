@@ -1,16 +1,18 @@
-# Project name → containers group under "conductor-core" in Docker Desktop / `docker compose ls`
+# yaml-language-server: $schema=https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json
+# Project name -> containers group under "conductor-core"
 name: conductor-core
 
-# Core platform stack. Start services one at a time or all together:
+# Start one service:
+#   docker compose -f conductor-core/compose.yaml up -d postgres
+#   docker compose -f conductor-core/compose.yaml up -d redis
+#   docker compose -f conductor-core/compose.yaml up -d backend
+#   docker compose -f conductor-core/compose.yaml up -d conductor
+#   docker compose -f conductor-core/compose.yaml up -d frontend
+# Or all core services:
+#   docker compose -f conductor-core/compose.yaml up -d
 #
-#   docker compose -f conductor-core/docker-compose.yml up -d postgres
-#   docker compose -f conductor-core/docker-compose.yml up -d redis
-#   docker compose -f conductor-core/docker-compose.yml up -d backend
-#   docker compose -f conductor-core/docker-compose.yml up -d conductor
-#   docker compose -f conductor-core/docker-compose.yml up -d          # all core
-#
-# Trading nodes are NOT in this file — Conductor spawns them at deploy time
-# with labels conductor.stack=trading / conductor.role=trading-node.
+# Build trading-node image (not started by compose):
+#   docker compose -f conductor-core/compose.yaml --profile build build trading-node
 
 services:
   postgres:
@@ -27,14 +29,10 @@ services:
     networks:
       - conductor-net
     labels:
-      conductor.stack: core
-      conductor.role: postgres
+      - "conductor.stack=core"
+      - "conductor.role=postgres"
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-conductor} -d ${POSTGRES_DB:-conductor}",
-        ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-conductor} -d ${POSTGRES_DB:-conductor}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -47,8 +45,8 @@ services:
     networks:
       - conductor-net
     labels:
-      conductor.stack: core
-      conductor.role: redis
+      - "conductor.stack=core"
+      - "conductor.role=redis"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -65,7 +63,6 @@ services:
       - path: ../.env
         required: false
     environment:
-      # Same Docker network as postgres/redis — use service DNS names
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       POSTGRES_USER: ${POSTGRES_USER:-conductor}
@@ -77,9 +74,8 @@ services:
     networks:
       - conductor-net
     labels:
-      conductor.stack: core
-      conductor.role: backend
-    # Soft deps: `up -d backend` alone still works; health waits only if those are starting too
+      - "conductor.stack=core"
+      - "conductor.role=backend"
     depends_on:
       postgres:
         condition: service_healthy
@@ -109,24 +105,39 @@ services:
     networks:
       - conductor-net
     labels:
-      conductor.stack: core
-      conductor.role: conductor
+      - "conductor.stack=core"
+      - "conductor.role=conductor"
     depends_on:
       redis:
         condition: service_healthy
         required: false
 
-  # Image only — never started as a long-running core service.
-  # Build: docker compose -f conductor-core/docker-compose.yml --profile build build trading-node
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    image: conductor-frontend:latest
+    container_name: conductor-frontend
+    ports:
+      - "5500:5500"
+    networks:
+      - conductor-net
+    labels:
+      - "conductor.stack=core"
+      - "conductor.role=frontend"
+    depends_on:
+      - backend
+
   trading-node:
-    profiles: ["build"]
+    profiles:
+      - build
     build:
       context: ..
       dockerfile: docker/Dockerfile.trading-node
     image: conductor-trading-node:latest
     labels:
-      conductor.stack: trading
-      conductor.role: trading-node
+      - "conductor.stack=trading"
+      - "conductor.role=trading-node"
 
 networks:
   conductor-net:

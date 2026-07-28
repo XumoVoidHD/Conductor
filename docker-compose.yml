@@ -1,5 +1,5 @@
-# Deprecated. Use: conductor-core/docker-compose.yml
-# Build trading-node: docker compose -f conductor-core/docker-compose.yml --profile build build trading-node
+# Deprecated. Use: conductor-core/compose.yaml
+# Build trading-node: docker compose -f conductor-core/compose.yaml --profile build build trading-node
 
 services:
   _use_conductor_core:
@@ -9,5 +9,5 @@ services:
       [
         "sh",
         "-c",
-        "echo Use conductor-core/docker-compose.yml && exit 1",
+        "echo Use conductor-core/compose.yaml && exit 1",
       ]

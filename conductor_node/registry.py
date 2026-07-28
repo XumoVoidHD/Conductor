@@ -72,7 +72,7 @@ class NodeRegistry:
             node = self._nodes.get(node_id)
             if node is None:
                 return None
-            if not node.is_alive():
+            if not node.is_alive() and node.deploy_status not in {"INITIALIZING", "DEPLOYED"}:
                 node.deploy_status = "STOPPED"
             return node
 
@@ -86,7 +86,7 @@ class NodeRegistry:
             for node in self._nodes.values():
                 if node.user_id != user_id:
                     continue
-                if not node.is_alive():
+                if not node.is_alive() and node.deploy_status not in {"INITIALIZING", "DEPLOYED"}:
                     node.deploy_status = "STOPPED"
                 result.append(node)
             return result
@@ -94,6 +94,6 @@ class NodeRegistry:
     def list_all(self) -> list[RunningNode]:
         with self._lock:
             for node in self._nodes.values():
-                if not node.is_alive():
+                if not node.is_alive() and node.deploy_status not in {"INITIALIZING", "DEPLOYED"}:
                     node.deploy_status = "STOPPED"
             return list(self._nodes.values())

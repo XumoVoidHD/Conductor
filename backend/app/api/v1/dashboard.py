@@ -108,17 +108,23 @@ def grant_strategy_access(
 @router.get(
     "/nodes",
     summary="List trading nodes",
-    description="List nodes owned by the authenticated user via Conductor Redis.",
+    description=(
+        "List nodes owned by the authenticated user. "
+        "Includes stopped nodes (they still count toward trading_nodes quota)."
+    ),
 )
 def get_nodes(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     event = _service(current_user, db).list_nodes()
+    data = event.get("data") or {}
     return {
         "status": event.get("status"),
         "message": event.get("message"),
-        "nodes": (event.get("data") or {}).get("nodes", []),
+        "nodes": data.get("nodes", []),
+        "node_count": data.get("node_count", len(data.get("nodes", []))),
+        "max_trading_nodes": data.get("max_trading_nodes", current_user.trading_nodes),
         "raw": event,
     }
 
@@ -129,7 +135,9 @@ def get_nodes(
     summary="Deploy a strategy",
     description=(
         "Deploy a trading node with the selected strategy on Bybit "
-        "(credentials from server .env). Strategy starts STOPPED — call /run next."
+        "(credentials from server .env). Strategy starts STOPPED — call /run next. "
+        "Fails if the user already has trading_nodes slots in use "
+        "(stopped nodes still count; delete to free a slot)."
     ),
 )
 def deploy(
@@ -150,7 +158,7 @@ def deploy(
     }
 
 
-@router.post("/nodes/run", summary="Start strategy on a node")
+@router.post("/nodes/run", summary="Start strategy (starts container if stopped)")
 def run_node(
     payload: NodeActionRequest,
     current_user: User = Depends(get_current_user),
@@ -159,16 +167,20 @@ def run_node(
     return _service(current_user, db).node_action("run", payload.node_id)
 
 
-@router.post("/nodes/halt", summary="Stop strategy on a node")
-def halt_node(
+@router.post(
+    "/nodes/stop",
+    summary="Stop trading node container/process",
+    description="Stops the node but keeps the slot. Use /delete to free quota.",
+)
+def stop_node(
     payload: NodeActionRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    return _service(current_user, db).node_action("halt", payload.node_id)
+    return _service(current_user, db).node_action("stop", payload.node_id)
 
 
-@router.post("/nodes/status", summary="Strategy status on a node")
+@router.post("/nodes/status", summary="Node / strategy status")
 def status_node(
     payload: NodeActionRequest,
     current_user: User = Depends(get_current_user),
@@ -177,10 +189,36 @@ def status_node(
     return _service(current_user, db).node_action("status", payload.node_id)
 
 
-@router.post("/nodes/stop", summary="Destroy a trading node")
-def stop_node(
+@router.post(
+    "/nodes/restart",
+    summary="Restart trading node",
+    description="Restarts the container/process. Strategy comes back STOPPED.",
+)
+def restart_node(
     payload: NodeActionRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    return _service(current_user, db).node_action("stop", payload.node_id)
+    return _service(current_user, db).node_action("restart", payload.node_id)
+
+
+@router.post(
+    "/nodes/delete",
+    summary="Delete trading node",
+    description="Destroys the container/process and frees a trading_nodes slot.",
+)
+def delete_node(
+    payload: NodeActionRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return _service(current_user, db).node_action("delete", payload.node_id)
+
+
+@router.post("/nodes/halt", summary="Halt strategy only (node stays running)")
+def halt_node(
+    payload: NodeActionRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return _service(current_user, db).node_action("halt", payload.node_id)

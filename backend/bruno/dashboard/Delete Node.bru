@@ -1,11 +1,11 @@
 meta {
-  name: Stop Node
+  name: Delete Node
   type: http
-  seq: 7
+  seq: 9
 }
 
 post {
-  url: {{baseUrl}}/api/v1/dashboard/nodes/stop
+  url: {{baseUrl}}/api/v1/dashboard/nodes/delete
   body: json
   auth: bearer
 }
@@ -25,6 +25,5 @@ body:json {
 }
 
 docs {
-  Stop the container/process but keep the trading_nodes slot.
-  Use Delete Node to free quota.
+  Destroy the container/process and free a trading_nodes slot.
 }

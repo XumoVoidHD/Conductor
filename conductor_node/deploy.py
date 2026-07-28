@@ -10,7 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from conductor_node.docker_runtime import container_name_for
+from conductor_node.docker_runtime import delete_trading_node_container
+from conductor_node.docker_runtime import restart_trading_node_container
 from conductor_node.docker_runtime import spawn_trading_node_container
+from conductor_node.docker_runtime import start_trading_node_container
 from conductor_node.docker_runtime import stop_trading_node_container
 from conductor_node.registry import NodeRegistry
 from conductor_node.registry import RunningNode
@@ -205,23 +208,10 @@ def spawn_trading_node(
     return running
 
 
-def stop_trading_node(node: RunningNode, *, graceful: bool = True) -> None:
-    if not node.is_alive():
-        node.deploy_status = "STOPPED"
-        return
-
-    if node.runtime == "docker":
-        assert node.container_id is not None
-        stop_trading_node_container(
-            node.container_id,
-            graceful=graceful,
-            control_host=node.control_host,
-            control_port=node.control_port,
-        )
-        node.deploy_status = "STOPPED"
-        return
-
+def _shutdown_subprocess(node: RunningNode, *, graceful: bool) -> None:
     assert node.process is not None
+    if node.process.poll() is not None:
+        return
 
     if graceful:
         try:
@@ -244,4 +234,85 @@ def stop_trading_node(node: RunningNode, *, graceful: bool = True) -> None:
         node.process.kill()
         node.process.wait(timeout=5)
 
+
+def stop_trading_node(node: RunningNode, *, graceful: bool = True) -> None:
+    """Stop the node process/container but keep the registry slot occupied."""
+    if not node.is_alive():
+        node.deploy_status = "STOPPED"
+        return
+
+    if node.runtime == "docker":
+        assert node.container_id is not None
+        stop_trading_node_container(
+            node.container_id,
+            graceful=graceful,
+            control_host=node.control_host,
+            control_port=node.control_port,
+        )
+        node.deploy_status = "STOPPED"
+        return
+
+    _shutdown_subprocess(node, graceful=graceful)
     node.deploy_status = "STOPPED"
+
+
+def start_trading_node(node: RunningNode) -> None:
+    """Start a previously stopped node (same slot)."""
+    if node.is_alive():
+        node.deploy_status = "DEPLOYED"
+        return
+
+    if node.runtime == "docker":
+        assert node.container_id is not None
+        start_trading_node_container(node.container_id)
+        from conductor_node.control_client import wait_for_control
+
+        wait_for_control(node.control_host, node.control_port)
+        node.deploy_status = "DEPLOYED"
+        return
+
+    env = os.environ.copy()
+    env["CONDUCTOR_BOOTSTRAP"] = node.bootstrap_path
+    env["PYTHONPATH"] = str(REPO_ROOT)
+    node.process = subprocess.Popen(
+        [sys.executable, "-m", "trading_node"],
+        cwd=str(REPO_ROOT),
+        env=env,
+    )
+    from conductor_node.control_client import wait_for_control
+
+    wait_for_control(node.control_host, node.control_port)
+    node.deploy_status = "DEPLOYED"
+
+
+def restart_trading_node(node: RunningNode) -> None:
+    """Restart the container/process; strategy comes back STOPPED."""
+    if node.runtime == "docker":
+        assert node.container_id is not None
+        restart_trading_node_container(node.container_id)
+        from conductor_node.control_client import wait_for_control
+
+        wait_for_control(node.control_host, node.control_port)
+        node.deploy_status = "DEPLOYED"
+        return
+
+    stop_trading_node(node, graceful=True)
+    start_trading_node(node)
+
+
+def delete_trading_node(node: RunningNode, *, graceful: bool = True) -> None:
+    """Destroy the container/process. Caller must remove the registry entry (frees slot)."""
+    if node.runtime == "docker":
+        if node.container_id:
+            delete_trading_node_container(
+                node.container_id,
+                graceful=graceful,
+                control_host=node.control_host,
+                control_port=node.control_port,
+            )
+        node.deploy_status = "DELETED"
+        return
+
+    if node.is_alive():
+        _shutdown_subprocess(node, graceful=graceful)
+    node.deploy_status = "DELETED"

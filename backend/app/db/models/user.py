@@ -36,6 +36,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.db.models.strategy import Strategy
     from app.db.models.strategy import StrategyAccess
+    from app.db.models.trading_node import TradingNode
 
 
 class UserRole(str, enum.Enum):
@@ -93,6 +94,11 @@ class User(Base):
         "StrategyAccess",
         back_populates="user",
         foreign_keys="StrategyAccess.user_id",
+    )
+    owned_trading_nodes: Mapped[list[TradingNode]] = relationship(
+        "TradingNode",
+        back_populates="user",
+        foreign_keys="TradingNode.user_id",
     )
 
     def __repr__(self) -> str:

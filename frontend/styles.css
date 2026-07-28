@@ -220,6 +220,14 @@ body {
   font-weight: 600;
 }
 
+.block-head h2 .muted {
+  letter-spacing: 0.06em;
+  text-transform: none;
+  font-weight: 500;
+  margin-left: 0.45rem;
+  opacity: 0.85;
+}
+
 .strategy-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -281,7 +289,7 @@ body {
 
 .btn-primary:disabled {
   opacity: 0.55;
-  cursor: wait;
+  cursor: not-allowed;
 }
 
 .btn-ghost {
@@ -319,7 +327,8 @@ body {
 
 .btn-tiny:disabled {
   opacity: 0.5;
-  cursor: wait;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .nodes-table-wrap {
@@ -377,6 +386,27 @@ body {
 .alive-dot.on {
   background: var(--accent);
   box-shadow: 0 0 8px rgba(61, 255, 168, 0.6);
+}
+
+.alive-dot.ready {
+  background: #7eb8ff;
+  box-shadow: 0 0 8px rgba(126, 184, 255, 0.45);
+}
+
+.alive-dot.init {
+  background: #e6b84d;
+  box-shadow: 0 0 8px rgba(230, 184, 77, 0.5);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 @keyframes rise {
