@@ -6,13 +6,15 @@
   const authShell = document.getElementById("auth-shell");
   const dashShell = document.getElementById("dash-shell");
   const authBanner = document.getElementById("auth-banner");
-  const banner = document.getElementById("banner");
+  const toastStack = document.getElementById("toast-stack");
   const statusPill = document.getElementById("status-pill");
   const strategyGrid = document.getElementById("strategy-grid");
   const nodesBody = document.getElementById("nodes-body");
   const userLabel = document.getElementById("user-label");
   const loginForm = document.getElementById("login-form");
   const registerForm = document.getElementById("register-form");
+
+  const TOAST_TTL_MS = 3500;
 
   function getToken() {
     return localStorage.getItem(TOKEN_KEY);
@@ -47,15 +49,45 @@
     authBanner.textContent = "";
   }
 
-  function showBanner(message, kind = "error") {
-    banner.hidden = false;
-    banner.textContent = message;
-    banner.classList.toggle("info", kind === "info");
+  function toneForAction(action) {
+    const a = String(action || "").toLowerCase();
+    if (a === "run" || a === "deploy") return "success";
+    if (a === "stop" || a === "restart" || a === "halt") return "warn";
+    if (a === "delete") return "danger";
+    return "success";
   }
 
-  function clearBanner() {
-    banner.hidden = true;
-    banner.textContent = "";
+  function dismissToast(el) {
+    if (!el || el.classList.contains("leaving")) return;
+    el.classList.add("leaving");
+    window.setTimeout(() => el.remove(), 200);
+  }
+
+  function showToast(message, tone = "success") {
+    if (!toastStack) return;
+    const el = document.createElement("div");
+    el.className = `toast ${tone}`;
+    el.setAttribute("role", "status");
+
+    const msg = document.createElement("div");
+    msg.className = "toast-msg";
+    msg.textContent = message;
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "toast-close";
+    close.setAttribute("aria-label", "Dismiss");
+    close.textContent = "×";
+    close.addEventListener("click", () => dismissToast(el));
+
+    el.append(msg, close);
+    toastStack.appendChild(el);
+
+    let timer = window.setTimeout(() => dismissToast(el), TOAST_TTL_MS);
+    el.addEventListener("mouseenter", () => window.clearTimeout(timer));
+    el.addEventListener("mouseleave", () => {
+      timer = window.setTimeout(() => dismissToast(el), TOAST_TTL_MS);
+    });
   }
 
   function formatDetail(detail) {
@@ -322,21 +354,20 @@
     const btn = event.target.closest("[data-deploy]");
     if (!btn) return;
     const strategyId = btn.getAttribute("data-deploy");
-    clearBanner();
     btn.disabled = true;
     try {
       const result = await api("/api/v1/dashboard/deploy", {
         method: "POST",
         body: JSON.stringify({ strategy_id: strategyId }),
       });
-      showBanner(
-        `Deployed ${strategyId} → ${result.node_id || "ok"}. Status will show Initializing until ready.`,
-        "info",
+      showToast(
+        `Deployed ${strategyId} → ${result.node_id || "ok"}`,
+        toneForAction("deploy"),
       );
       await refreshNodes();
       await refreshStrategies();
     } catch (err) {
-      showBanner(err.message || String(err));
+      showToast(err.message || String(err), "error");
     } finally {
       btn.disabled = false;
     }
@@ -347,17 +378,20 @@
     if (!btn) return;
     const action = btn.getAttribute("data-action");
     const nodeId = btn.getAttribute("data-node");
-    clearBanner();
 
     // Immediate pending status; final status comes from refresh after confirm
     if (action === "run") {
       setOptimisticNodeStatus(nodeId, "Starting");
+      showToast("Starting...", toneForAction("run"));
     } else if (action === "stop") {
       setOptimisticNodeStatus(nodeId, "Stopping");
+      showToast("Stopping...", toneForAction("stop"));
     } else if (action === "restart") {
       setOptimisticNodeStatus(nodeId, "Restarting");
+      showToast("Restarting...", toneForAction("restart"));
     } else if (action === "delete") {
       setOptimisticNodeStatus(nodeId, "Deleting");
+      showToast("Deleting...", toneForAction("delete"));
     }
 
     try {
@@ -365,36 +399,45 @@
         method: "POST",
         body: JSON.stringify({ node_id: nodeId }),
       });
-      const status = result.data?.status || result.message || result.status || action;
-      showBanner(`${action}: ${status}`, "info");
+      const status = result.data?.status || result.message || result.status || "ok";
+      const labels = {
+        run: "Running",
+        stop: "Stopped",
+        restart: "Restarted",
+        delete: "Deleted",
+      };
+      showToast(labels[action] || String(status), toneForAction(action));
       await refreshNodes();
       await refreshStrategies();
     } catch (err) {
-      showBanner(err.message || String(err));
+      showToast(err.message || String(err), "error");
       await refreshNodes().catch(() => {});
     }
   });
 
   document.getElementById("refresh-strategies").addEventListener("click", () => {
-    refreshStrategies().catch((err) => showBanner(err.message));
+    refreshStrategies().catch((err) => showToast(err.message, "error"));
   });
   document.getElementById("refresh-nodes").addEventListener("click", () => {
     refreshNodes()
       .then(() => refreshStrategies())
-      .catch((err) => showBanner(err.message));
+      .catch((err) => showToast(err.message, "error"));
   });
 
   async function enterDashboard(user) {
     showDash(user);
-    clearBanner();
-    await refreshStatus();
-    try {
-      await refreshNodes();
-      await refreshStrategies();
-      startNodesPoll();
-    } catch (err) {
-      showBanner(err.message || String(err));
+    // Load status + data in parallel so a slow/failed status never blocks the UI
+    const results = await Promise.allSettled([
+      refreshStatus(),
+      refreshNodes(),
+      refreshStrategies(),
+    ]);
+    for (const result of results) {
+      if (result.status === "rejected") {
+        showToast(result.reason?.message || String(result.reason), "error");
+      }
     }
+    startNodesPoll();
   }
 
   (async () => {
