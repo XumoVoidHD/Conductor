@@ -96,7 +96,7 @@ services:
       TRADING_NODE_IMAGE: conductor-trading-node:latest
       DOCKER_NETWORK: conductor-net
       DOCKER_NODES_VOLUME: conductor-nodes
-      TRADING_NODE_CONTROL_PORT: "9000"
+      CONDUCTOR_CONTROL_PORT_BASE: "9000"
       DOCKER_PUBLISH_CONTROL_PORT: "true"
       CONDUCTOR_NODES_DIR: /app/data/nodes
     volumes:

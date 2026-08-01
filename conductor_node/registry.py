@@ -39,33 +39,62 @@ class NodeRegistry:
     _nodes: dict[str, RunningNode] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _next_control_port: int = 9000
+    # Ports handed out by allocate_control_port but not yet tied to a RunningNode
+    # (or still held by a registered node). Prevents concurrent deploy races.
+    _reserved_ports: set[int] = field(default_factory=set)
 
     def configure_port_base(self, control_port_base: int) -> None:
         self._next_control_port = control_port_base
 
     def allocate_control_port(self, requested: int | None, *, runtime: NodeRuntimeKind) -> int:
-        if runtime == "docker":
-            from conductor_node.settings import TRADING_NODE_CONTROL_PORT
+        """
+        Allocate a unique control port for a new node.
 
-            return requested or TRADING_NODE_CONTROL_PORT
-
+        Ports are unique across *all* users and runtimes so Docker host binds
+        (and local subprocess binds) never collide. Stopped-but-registered
+        nodes keep their port reserved until delete.
+        """
         with self._lock:
             if requested is not None:
+                if self._port_taken(requested, runtime=runtime):
+                    raise ValueError(f"control port {requested} is already in use")
+                self._reserved_ports.add(requested)
                 return requested
-            while self._port_in_use(self._next_control_port):
-                self._next_control_port += 1
-            port = self._next_control_port
-            self._next_control_port += 1
-            return port
 
-    def _port_in_use(self, port: int) -> bool:
-        return any(n.control_port == port and n.is_alive() for n in self._nodes.values())
+            start = self._next_control_port
+            for _ in range(10_000):
+                port = self._next_control_port
+                self._next_control_port += 1
+                if not self._port_taken(port, runtime=runtime):
+                    self._reserved_ports.add(port)
+                    return port
+            raise ValueError(
+                f"no free control ports from base {start} "
+                f"(checked 10000 candidates for runtime={runtime})",
+            )
+
+    def release_control_port(self, port: int) -> None:
+        """Free a port that was allocated but never registered (failed deploy)."""
+        with self._lock:
+            self._reserved_ports.discard(port)
+
+    def _port_taken(self, port: int, *, runtime: NodeRuntimeKind) -> bool:
+        if port in self._reserved_ports:
+            return True
+        if any(n.control_port == port for n in self._nodes.values()):
+            return True
+        if runtime == "docker":
+            from conductor_node.docker_runtime import host_ports_in_use
+
+            return port in host_ports_in_use()
+        return False
 
     def add(self, node: RunningNode) -> None:
         with self._lock:
             if node.node_id in self._nodes and self._nodes[node.node_id].is_alive():
                 raise ValueError(f"node_id {node.node_id} is already running")
             self._nodes[node.node_id] = node
+            self._reserved_ports.add(node.control_port)
 
     def get(self, node_id: str) -> RunningNode | None:
         with self._lock:
@@ -78,7 +107,10 @@ class NodeRegistry:
 
     def remove(self, node_id: str) -> RunningNode | None:
         with self._lock:
-            return self._nodes.pop(node_id, None)
+            node = self._nodes.pop(node_id, None)
+            if node is not None:
+                self._reserved_ports.discard(node.control_port)
+            return node
 
     def list_for_user(self, user_id: str) -> list[RunningNode]:
         with self._lock:

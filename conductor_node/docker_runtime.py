@@ -13,7 +13,6 @@ from docker.types import Mount
 
 from conductor_node.settings import DOCKER_NETWORK
 from conductor_node.settings import DOCKER_NODES_VOLUME
-from conductor_node.settings import TRADING_NODE_CONTROL_PORT
 from conductor_node.settings import TRADING_NODE_IMAGE
 
 
@@ -23,6 +22,43 @@ def container_name_for(node_id: str) -> str:
 
 def _client() -> docker.DockerClient:
     return docker.from_env()
+
+
+def host_ports_in_use() -> set[int]:
+    """Host ports already claimed by Conductor trading-node containers."""
+    ports: set[int] = set()
+    try:
+        client = _client()
+        containers = client.containers.list(
+            all=True,
+            filters={"label": "conductor.role=trading-node"},
+        )
+        for container in containers:
+            attrs = container.attrs or {}
+            host_config = attrs.get("HostConfig") or {}
+            bindings = host_config.get("PortBindings")
+            if bindings is None:
+                container.reload()
+                attrs = container.attrs or {}
+                host_config = attrs.get("HostConfig") or {}
+                bindings = host_config.get("PortBindings") or {}
+            for host_binds in (bindings or {}).values():
+                if not host_binds:
+                    continue
+                for bind in host_binds:
+                    host_port = bind.get("HostPort")
+                    if host_port:
+                        ports.add(int(host_port))
+            for port_bindings in (container.ports or {}).values():
+                if not port_bindings:
+                    continue
+                for bind in port_bindings:
+                    host_port = bind.get("HostPort")
+                    if host_port:
+                        ports.add(int(host_port))
+    except Exception:  # noqa: BLE001 — best-effort; allocator still checks registry
+        return ports
+    return ports
 
 
 def ensure_network() -> None:
@@ -100,6 +136,9 @@ def spawn_trading_node_container(
         }
 
     if publish_control_port:
+        # Unique host port per node → same port inside the container.
+        # Conductor/backend reach nodes on the Docker network via
+        # container_name:control_port; publish is for host-side access.
         run_kwargs["ports"] = {f"{control_port}/tcp": control_port}
 
     try:

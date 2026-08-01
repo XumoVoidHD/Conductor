@@ -151,24 +151,49 @@ def spawn_trading_node(
     control_port = registry.allocate_control_port(payload.control_port, runtime=runtime)
     control_host = _control_host_for_runtime(payload, node_id=node_id, runtime=runtime)
 
-    _materialize_strategy_artifact(payload, node_id)
+    try:
+        _materialize_strategy_artifact(payload, node_id)
 
-    bootstrap = build_bootstrap_dict(
-        payload,
-        node_id=node_id,
-        control_port=control_port,
-        control_host=control_host,
-    )
-    bootstrap_path = write_bootstrap(node_id, bootstrap)
-
-    if runtime == "docker":
-        container = spawn_trading_node_container(
+        bootstrap = build_bootstrap_dict(
+            payload,
             node_id=node_id,
-            user_id=payload.user_id,
-            bootstrap_path=bootstrap_path,
             control_port=control_port,
-            publish_control_port=DOCKER_PUBLISH_CONTROL_PORT,
+            control_host=control_host,
         )
+        bootstrap_path = write_bootstrap(node_id, bootstrap)
+
+        if runtime == "docker":
+            container = spawn_trading_node_container(
+                node_id=node_id,
+                user_id=payload.user_id,
+                bootstrap_path=bootstrap_path,
+                control_port=control_port,
+                publish_control_port=DOCKER_PUBLISH_CONTROL_PORT,
+            )
+            running = RunningNode(
+                node_id=node_id,
+                user_id=payload.user_id,
+                control_host=control_host,
+                control_port=control_port,
+                broker_adapter=payload.broker.adapter,
+                bootstrap_path=str(bootstrap_path),
+                runtime="docker",
+                container_id=container.id,
+                deploy_status="DEPLOYED",
+            )
+            registry.add(running)
+            return running
+
+        env = os.environ.copy()
+        env["CONDUCTOR_BOOTSTRAP"] = str(bootstrap_path)
+        env["PYTHONPATH"] = str(REPO_ROOT)
+
+        process = subprocess.Popen(
+            [sys.executable, "-m", "trading_node"],
+            cwd=str(REPO_ROOT),
+            env=env,
+        )
+
         running = RunningNode(
             node_id=node_id,
             user_id=payload.user_id,
@@ -176,36 +201,15 @@ def spawn_trading_node(
             control_port=control_port,
             broker_adapter=payload.broker.adapter,
             bootstrap_path=str(bootstrap_path),
-            runtime="docker",
-            container_id=container.id,
+            runtime="subprocess",
+            process=process,
             deploy_status="DEPLOYED",
         )
         registry.add(running)
         return running
-
-    env = os.environ.copy()
-    env["CONDUCTOR_BOOTSTRAP"] = str(bootstrap_path)
-    env["PYTHONPATH"] = str(REPO_ROOT)
-
-    process = subprocess.Popen(
-        [sys.executable, "-m", "trading_node"],
-        cwd=str(REPO_ROOT),
-        env=env,
-    )
-
-    running = RunningNode(
-        node_id=node_id,
-        user_id=payload.user_id,
-        control_host=control_host,
-        control_port=control_port,
-        broker_adapter=payload.broker.adapter,
-        bootstrap_path=str(bootstrap_path),
-        runtime="subprocess",
-        process=process,
-        deploy_status="DEPLOYED",
-    )
-    registry.add(running)
-    return running
+    except Exception:
+        registry.release_control_port(control_port)
+        raise
 
 
 def _shutdown_subprocess(node: RunningNode, *, graceful: bool) -> None:
