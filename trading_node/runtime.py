@@ -24,13 +24,30 @@ from trading_node.brokers import build_broker
 
 GRACEFUL_STRATEGY_STOP_TIMEOUT_SEC = 10.0
 GRACEFUL_STRATEGY_POLL_SEC = 0.1
-KNOWN_COMMANDS = "run, halt, status, reset, shutdown, kill"
+KNOWN_COMMANDS = "run, halt, status, reset, shutdown, kill, snapshot"
+RECENT_LOG_LIMIT = 200
 
 
 @dataclass
 class WorkerState:
     shutting_down: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock)
+    recent_logs: list[str] = field(default_factory=list)
+    recent_errors: list[str] = field(default_factory=list)
+    node_id: str = ""
+    user_id: str = ""
+
+    def push_log(self, message: str) -> None:
+        with self.lock:
+            self.recent_logs.append(message)
+            if len(self.recent_logs) > RECENT_LOG_LIMIT:
+                self.recent_logs = self.recent_logs[-RECENT_LOG_LIMIT:]
+
+    def push_error(self, message: str) -> None:
+        with self.lock:
+            self.recent_errors.append(message)
+            if len(self.recent_errors) > RECENT_LOG_LIMIT:
+                self.recent_errors = self.recent_errors[-RECENT_LOG_LIMIT:]
 
 
 def _coerce_strategy_config_value(key: str, value: Any) -> Any:
@@ -150,12 +167,51 @@ async def _graceful_shutdown(
 
 
 def _reject_if_shutting_down(state: WorkerState, cmd: str) -> str | None:
-    if cmd in ("status", "kill"):
+    if cmd in ("status", "kill", "snapshot"):
         return None
     with state.lock:
         if state.shutting_down:
             return "ERROR worker is shutting down"
     return None
+
+
+def _run_snapshot_on_loop(
+    *,
+    loop: asyncio.AbstractEventLoop,
+    node: TradingNode,
+    strategy_id: StrategyId,
+    state: WorkerState,
+) -> dict[str, Any]:
+    import concurrent.futures
+
+    from trading_node.snapshot import build_node_snapshot
+
+    future: concurrent.futures.Future[dict[str, Any]] = concurrent.futures.Future()
+
+    def _build() -> None:
+        try:
+            with state.lock:
+                logs = list(state.recent_logs)
+                errors = list(state.recent_errors)
+                shutting_down = state.shutting_down
+                node_id = state.node_id
+                user_id = state.user_id
+            future.set_result(
+                build_node_snapshot(
+                    node,
+                    strategy_id=strategy_id,
+                    node_id=node_id,
+                    user_id=user_id,
+                    recent_logs=logs,
+                    recent_errors=errors,
+                    shutting_down=shutting_down,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            future.set_exception(exc)
+
+    loop.call_soon_threadsafe(_build)
+    return future.result(timeout=15.0)
 
 
 def _handle_command(
@@ -177,6 +233,7 @@ def _handle_command(
         if strategy.is_running:
             return "ERROR strategy already running"
         loop.call_soon_threadsafe(_start_strategy, node, strategy_id)
+        state.push_log("command=run accepted")
         return "OK strategy start requested"
 
     if cmd in ("halt", "stop"):
@@ -186,6 +243,7 @@ def _handle_command(
         if not strategy.is_running:
             return "ERROR strategy already stopped"
         loop.call_soon_threadsafe(node.trader.stop_strategy, strategy_id)
+        state.push_log("command=halt accepted")
         return "OK strategy stop requested"
 
     if cmd == "reset":
@@ -195,6 +253,7 @@ def _handle_command(
         if strategy.is_running:
             return "ERROR strategy is running; halt first"
         loop.call_soon_threadsafe(strategy.reset)
+        state.push_log("command=reset accepted")
         return "OK strategy reset"
 
     if cmd == "status":
@@ -203,11 +262,28 @@ def _handle_command(
                 return "OK worker=shutting_down"
         return f"OK strategy={_strategy_label(node, strategy_id)}"
 
+    if cmd == "snapshot":
+        import json
+
+        try:
+            payload = _run_snapshot_on_loop(
+                loop=loop,
+                node=node,
+                strategy_id=strategy_id,
+                state=state,
+            )
+        except Exception as exc:  # noqa: BLE001
+            state.push_error(f"snapshot failed: {exc}")
+            return f"ERROR snapshot failed: {exc}"
+        # Compact single-line JSON after OK marker for TCP protocol.
+        return "OK SNAPSHOT " + json.dumps(payload, separators=(",", ":"), default=str)
+
     if cmd == "shutdown":
         with state.lock:
             if state.shutting_down:
                 return "ERROR shutdown already in progress"
             state.shutting_down = True
+        state.push_log("command=shutdown accepted")
         asyncio.run_coroutine_threadsafe(
             _graceful_shutdown(node, strategy_id, stop_event),
             loop,
@@ -217,6 +293,7 @@ def _handle_command(
     if cmd == "kill":
         with state.lock:
             state.shutting_down = True
+        state.push_log("command=kill accepted")
         stop_event.set()
         loop.call_soon_threadsafe(_kill_node, node)
         return "OK kill switch activated"
@@ -281,7 +358,11 @@ async def _run_node(
     if loop is None:
         raise RuntimeError("No event loop on TradingNode")
 
-    state = WorkerState()
+    state = WorkerState(
+        node_id=bootstrap.node_id,
+        user_id=bootstrap.user_id,
+    )
+    state.push_log(f"trading node ready node_id={bootstrap.node_id}")
     stop_event = threading.Event()
     threading.Thread(
         target=_control_server,

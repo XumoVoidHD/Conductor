@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter
 from fastapi import Depends
+from fastapi import HTTPException
 from fastapi import status
 from pydantic import BaseModel
 from pydantic import Field
@@ -32,6 +33,18 @@ class DeployRequest(BaseModel):
 
 class NodeActionRequest(BaseModel):
     node_id: str = Field(..., examples=["tn-abc123"])
+
+
+class NodeSnapshotRequest(BaseModel):
+    """Identify the trading node by node_id or Docker container name."""
+
+    node_id: str | None = Field(default=None, examples=["tn-abc123"])
+    container_name: str | None = Field(default=None, examples=["conductor-tn-abc123"])
+    node: str | None = Field(
+        default=None,
+        description="Alias for either node_id or container_name",
+        examples=["tn-abc123"],
+    )
 
 
 def _service(current_user: User, db: Session) -> DashboardService:
@@ -222,3 +235,29 @@ def halt_node(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     return _service(current_user, db).node_action("halt", payload.node_id)
+
+
+@router.post(
+    "/nodes/snapshot",
+    summary="Full Nautilus node snapshot",
+    description=(
+        "On-demand observe snapshot for one trading node: positions, orders, fills, "
+        "balances, portfolio stats, subscriptions, instruments, strategy state, "
+        "indicators, risk, logs, errors, and health. "
+        "Provide `node_id`, `container_name`, or `node` (either). "
+        "Queries the trading node directly when running; if stopped/unreachable, "
+        "returns an offline snapshot from the database (reachable=false)."
+    ),
+)
+def snapshot_node(
+    payload: NodeSnapshotRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    ref = payload.node_id or payload.container_name or payload.node
+    if not ref:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Provide node_id, container_name, or node",
+        )
+    return _service(current_user, db).get_node_snapshot(ref)

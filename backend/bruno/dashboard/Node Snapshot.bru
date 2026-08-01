@@ -1,0 +1,37 @@
+meta {
+  name: Node Snapshot
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/v1/dashboard/nodes/snapshot
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+body:json {
+  {
+    "node_id": "tn-8324f2e9"
+  }
+}
+
+vars:pre-request {
+  baseUrl: http://127.0.0.1:8000
+}
+
+docs {
+  Full Nautilus observe snapshot for one trading node.
+  Provide node_id, container_name (e.g. conductor-tn-abc123), or node.
+  When the node is running: live positions/orders/fills/...
+  When stopped/unreachable: HTTP 200 with reachable=false and an offline
+  snapshot from the DB (strategy identity + last known status).
+}

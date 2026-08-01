@@ -16,13 +16,20 @@ def send_control_command(
         with socket.create_connection((host, port), timeout=timeout_sec) as sock:
             sock.sendall(f"{command}\n".encode("utf-8"))
             sock.settimeout(timeout_sec)
-            data = sock.recv(4096)
+            chunks: list[bytes] = []
+            while True:
+                data = sock.recv(65536)
+                if not data:
+                    break
+                chunks.append(data)
+                if b"\n" in data:
+                    break
     except ConnectionRefusedError as exc:
         raise ConnectionError(f"cannot connect to trading node at {host}:{port}") from exc
     except OSError as exc:
         raise ConnectionError(f"control socket error ({host}:{port}): {exc}") from exc
 
-    return data.decode("utf-8").strip()
+    return b"".join(chunks).decode("utf-8").strip()
 
 
 def wait_for_control(

@@ -7,6 +7,7 @@ from datetime import timezone
 from typing import Any
 
 from sqlalchemy import func
+from sqlalchemy import or_
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -42,6 +43,31 @@ class TradingNodeRepository:
     def get_by_node_id(self, node_id: str, *, include_deleted: bool = False) -> TradingNode | None:
         stmt = select(TradingNode).where(TradingNode.node_id == node_id)
         row = self._db.scalar(stmt)
+        if row is None:
+            return None
+        if not include_deleted and row.deleted_at is not None:
+            return None
+        return row
+
+    def get_by_ref(self, ref: str, *, include_deleted: bool = False) -> TradingNode | None:
+        """Resolve by node_id, container_name, or container_id (exact match)."""
+        key = (ref or "").strip()
+        if not key:
+            return None
+        row = self.get_by_node_id(key, include_deleted=include_deleted)
+        if row is not None:
+            return row
+
+        stmt = select(TradingNode).where(
+            or_(TradingNode.container_name == key, TradingNode.container_id == key),
+        )
+        row = self._db.scalar(stmt)
+        if row is None and key.startswith("conductor-"):
+            # Allow conductor-{node_id} even if container_name was not persisted.
+            maybe_node_id = key.removeprefix("conductor-")
+            row = self.get_by_node_id(maybe_node_id, include_deleted=include_deleted)
+            if row is not None:
+                return row
         if row is None:
             return None
         if not include_deleted and row.deleted_at is not None:

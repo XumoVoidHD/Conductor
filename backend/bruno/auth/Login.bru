@@ -16,9 +16,14 @@ headers {
 
 body:json {
   {
-    "username": "vedansh",
-    "password": "Password@123"
+    
+    "username": "Asphalt",
+    "password": "vedansh"
   }
+  // {
+  //   "username": "vedansh",
+  //   "password": "Password@123"
+  // }
 }
 
 script:post-response {
@@ -29,9 +34,10 @@ script:post-response {
 
 docs {
   Returns JWT `access_token`.
-
+  
   On success, the post-response script saves it to the active environment
   as `accessToken`. All other requests use `Authorization: Bearer {{accessToken}}`.
-
+  
   Run Login once per session (or when the token expires). Select environment **Local**.
 }
+​

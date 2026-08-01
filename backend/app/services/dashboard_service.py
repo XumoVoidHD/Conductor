@@ -354,6 +354,141 @@ class DashboardService:
                 )
         return event
 
+    def get_node_snapshot(self, node_ref: str) -> dict[str, Any]:
+        """
+        Pull a full Nautilus snapshot from a live trading node.
+
+        Resolves ``node_ref`` as node_id or Docker container name, checks
+        ownership, then talks to the node control TCP socket directly
+        (observe path — not via Conductor).
+
+        If the node process/container is stopped (TCP unreachable), returns an
+        offline snapshot built from the DB record so callers can still inspect
+        strategy identity and last known status.
+        """
+        from datetime import datetime
+        from datetime import timezone
+
+        from app.services.node_control_client import fetch_node_snapshot
+
+        row = self._nodes.get_by_ref(node_ref)
+        if row is None or row.user_id != self._user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Node '{node_ref}' not found for your account.",
+            )
+
+        host = row.control_host or row.container_name or f"conductor-{row.node_id}"
+        port = int(row.control_port or 9000)
+        container_name = row.container_name or f"conductor-{row.node_id}"
+
+        try:
+            snapshot = fetch_node_snapshot(host, port)
+            reachable = True
+        except ConnectionError:
+            reachable = False
+            snapshot = self._offline_snapshot(row, host=host, port=port)
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=str(exc),
+            ) from exc
+
+        if reachable:
+            strategy_state = (snapshot.get("strategy") or {}).get("state")
+            if strategy_state == "running":
+                self._nodes.update_status(row.node_id, status="Running")
+            elif strategy_state in {"stopped", "missing"}:
+                health = snapshot.get("health") or {}
+                if health.get("node_running"):
+                    self._nodes.update_status(row.node_id, status="Ready")
+
+        return {
+            "node_id": row.node_id,
+            "container_name": container_name,
+            "strategy_slug": row.strategy_slug,
+            "strategy_name": row.strategy_name,
+            "reachable": reachable,
+            "queried_via": {"host": host, "port": port},
+            "snapshot": snapshot,
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    @staticmethod
+    def _offline_snapshot(row: Any, *, host: str, port: int) -> dict[str, Any]:
+        """DB-backed snapshot when the trading node control socket is down."""
+        from datetime import datetime
+        from datetime import timezone
+
+        status_label = row.status or "Stopped"
+        return {
+            "schema_version": 1,
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "source": "database",
+            "offline": True,
+            "offline_reason": (
+                f"Trading node not reachable at {host}:{port} "
+                f"(last known status: {status_label}). "
+                "Start/restart the node for a live Nautilus snapshot."
+            ),
+            "node": {
+                "node_id": row.node_id,
+                "user_id": None,
+                "trader_id": None,
+                "is_running": False,
+                "shutting_down": False,
+            },
+            "health": {
+                "node_running": False,
+                "reachable": False,
+                "shutting_down": False,
+                "strategy_state": "unknown",
+                "db_status": status_label,
+                "stopped_at": row.stopped_at.isoformat() if row.stopped_at else None,
+                "kernel_loop_alive": False,
+                "data_engine_running": False,
+                "exec_engine_running": False,
+                "risk_engine_running": False,
+            },
+            "strategy": {
+                "id": None,
+                "state": "offline",
+                "is_running": False,
+                "is_stopped": True,
+                "slug": row.strategy_slug,
+                "name": row.strategy_name,
+                "module": row.strategy_module,
+                "class_name": row.strategy_class_name,
+                "config": row.strategy_config or {},
+            },
+            "indicators": [],
+            "positions": {"open": [], "closed": [], "open_count": 0, "closed_count": 0},
+            "orders": {
+                "open": [],
+                "closed": [],
+                "inflight": [],
+                "open_count": 0,
+                "closed_count": 0,
+            },
+            "fills": [],
+            "balances": [],
+            "portfolio": {},
+            "market_data_subscriptions": {
+                "bars": [],
+                "quotes": [],
+                "trades": [],
+                "instruments": [],
+                "other": [],
+            },
+            "instruments": [],
+            "risk": {},
+            "logs": [],
+            "errors": [
+                f"offline: control socket {host}:{port} unreachable",
+            ],
+            "broker_adapter": row.broker_adapter,
+        }
+
     @staticmethod
     def _raise_if_error(event: dict[str, Any]) -> None:
         if event.get("status") == "error":
