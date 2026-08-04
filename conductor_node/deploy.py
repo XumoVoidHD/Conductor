@@ -241,11 +241,16 @@ def _shutdown_subprocess(node: RunningNode, *, graceful: bool) -> None:
 
 def stop_trading_node(node: RunningNode, *, graceful: bool = True) -> None:
     """Stop the node process/container but keep the registry slot occupied."""
-    if not node.is_alive():
-        node.deploy_status = "STOPPED"
-        return
-
     if node.runtime == "docker":
+        from conductor_node.docker_runtime import container_exists
+
+        if node.container_id and not container_exists(node.container_id):
+            raise ValueError(
+                f"container {node.container_id} not found — redeploy the node",
+            )
+        if not node.is_alive():
+            node.deploy_status = "STOPPED"
+            return
         assert node.container_id is not None
         stop_trading_node_container(
             node.container_id,
@@ -253,6 +258,10 @@ def stop_trading_node(node: RunningNode, *, graceful: bool = True) -> None:
             control_host=node.control_host,
             control_port=node.control_port,
         )
+        node.deploy_status = "STOPPED"
+        return
+
+    if not node.is_alive():
         node.deploy_status = "STOPPED"
         return
 
@@ -267,7 +276,12 @@ def start_trading_node(node: RunningNode) -> None:
         return
 
     if node.runtime == "docker":
-        assert node.container_id is not None
+        from conductor_node.docker_runtime import container_exists
+
+        if not node.container_id or not container_exists(node.container_id):
+            raise ValueError(
+                f"container {node.container_id or node.node_id} not found — redeploy the node",
+            )
         start_trading_node_container(node.container_id)
         from conductor_node.control_client import wait_for_control
 
@@ -292,7 +306,12 @@ def start_trading_node(node: RunningNode) -> None:
 def restart_trading_node(node: RunningNode) -> None:
     """Restart the container/process; strategy comes back STOPPED."""
     if node.runtime == "docker":
-        assert node.container_id is not None
+        from conductor_node.docker_runtime import container_exists
+
+        if not node.container_id or not container_exists(node.container_id):
+            raise ValueError(
+                f"container {node.container_id or node.node_id} not found — redeploy the node",
+            )
         restart_trading_node_container(node.container_id)
         from conductor_node.control_client import wait_for_control
 

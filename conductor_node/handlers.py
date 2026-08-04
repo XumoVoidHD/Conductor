@@ -238,10 +238,32 @@ class CommandHandler:
             data=data,
         )
 
+    def _drop_gone_node(self, node: RunningNode, message: str) -> None:
+        """Container disappeared — free Conductor registry slot."""
+        self._registry.remove(node.node_id)
+        raise ValueError(message)
+
+    def _require_docker_container(self, node: RunningNode) -> None:
+        if node.runtime != "docker":
+            return
+        from conductor_node.docker_runtime import container_exists
+
+        if not node.container_id or not container_exists(node.container_id):
+            self._drop_gone_node(
+                node,
+                f"container {node.container_id or node.node_id} not found — redeploy the node",
+            )
+
     def _stop(self, cmd: ConductorCommand) -> ConductorEvent:
         node = self._get_owned_node(cmd, require_alive=False)
+        self._require_docker_container(node)
         graceful = bool(cmd.payload.get("graceful", True))
-        stop_trading_node(node, graceful=graceful)
+        try:
+            stop_trading_node(node, graceful=graceful)
+        except ValueError as exc:
+            if "not found" in str(exc).lower():
+                self._drop_gone_node(node, str(exc))
+            raise
 
         return ConductorEvent(
             correlation_id=cmd.correlation_id,
@@ -271,7 +293,13 @@ class CommandHandler:
 
     def _restart(self, cmd: ConductorCommand) -> ConductorEvent:
         node = self._get_owned_node(cmd, require_alive=False)
-        restart_trading_node(node)
+        self._require_docker_container(node)
+        try:
+            restart_trading_node(node)
+        except ValueError as exc:
+            if "not found" in str(exc).lower():
+                self._drop_gone_node(node, str(exc))
+            raise
         return ConductorEvent(
             correlation_id=cmd.correlation_id,
             command=cmd.command,
@@ -284,7 +312,13 @@ class CommandHandler:
 
     def _run(self, cmd: ConductorCommand) -> ConductorEvent:
         node = self._get_owned_node(cmd, require_alive=False)
-        self._ensure_control_ready(node)
+        self._require_docker_container(node)
+        try:
+            self._ensure_control_ready(node)
+        except ValueError as exc:
+            if "not found" in str(exc).lower():
+                self._drop_gone_node(node, str(exc))
+            raise
         reply = send_control_command(node.control_host, node.control_port, "run")
         status = "ok" if reply.startswith("OK") else "error"
         data = self._node_data(node)

@@ -92,6 +92,9 @@
 
   function formatDetail(detail) {
     if (typeof detail === "string") return detail;
+    if (detail && typeof detail === "object" && detail.message) {
+      return String(detail.message);
+    }
     if (Array.isArray(detail)) {
       return detail
         .map((item) => {
@@ -101,6 +104,22 @@
         .join(" · ");
     }
     return "Request failed";
+  }
+
+  function detailCode(detail) {
+    if (detail && typeof detail === "object" && detail.code) {
+      return String(detail.code);
+    }
+    return null;
+  }
+
+  function detailQuota(detail) {
+    if (!detail || typeof detail !== "object") return null;
+    if (detail.node_count == null) return null;
+    return {
+      used: Number(detail.node_count),
+      max: Number(detail.max_trading_nodes ?? nodeQuota.max),
+    };
   }
 
   async function api(path, options = {}) {
@@ -130,7 +149,11 @@
       throw new Error(formatDetail(body.detail) || "Not authenticated");
     }
     if (!res.ok) {
-      throw new Error(formatDetail(body.detail) || `HTTP ${res.status}`);
+      const err = new Error(formatDetail(body.detail) || `HTTP ${res.status}`);
+      err.status = res.status;
+      err.code = detailCode(body.detail);
+      err.quota = detailQuota(body.detail);
+      throw err;
     }
     return body;
   }
@@ -169,6 +192,34 @@
       return { ...n, status };
     });
     renderNodes(cachedNodes);
+  }
+
+  function removeNodeFromUi(nodeId, quotaFromServer) {
+    cachedNodes = cachedNodes.filter((n) => n.node_id !== nodeId);
+    if (quotaFromServer) {
+      nodeQuota = {
+        used: Math.max(0, Number(quotaFromServer.used)),
+        max: Number(quotaFromServer.max ?? nodeQuota.max),
+      };
+    } else {
+      nodeQuota = {
+        ...nodeQuota,
+        used: Math.max(0, nodeQuota.used - 1),
+      };
+    }
+    renderNodes(cachedNodes);
+  }
+
+  function isNodeGoneError(err) {
+    if (!err) return false;
+    if (err.code === "node_gone" || err.status === 410) return true;
+    const msg = String(err.message || "").toLowerCase();
+    return (
+      msg.includes("no longer exists") ||
+      msg.includes("is gone") ||
+      msg.includes("container") && msg.includes("not found") ||
+      (msg.includes("not found") && msg.includes("node"))
+    );
   }
 
   function renderStrategies(strategies) {
@@ -407,9 +458,23 @@
         delete: "Deleted",
       };
       showToast(labels[action] || String(status), toneForAction(action));
+      if (action === "delete") {
+        removeNodeFromUi(nodeId);
+      }
       await refreshNodes();
       await refreshStrategies();
     } catch (err) {
+      if (isNodeGoneError(err)) {
+        removeNodeFromUi(nodeId, err.quota);
+        showToast(
+          err.message || `Node ${nodeId} is gone — removed from your list.`,
+          "error",
+        );
+        // Sync counter + deploy buttons from server (soft-delete frees the slot)
+        await refreshNodes().catch(() => {});
+        await refreshStrategies().catch(() => {});
+        return;
+      }
       showToast(err.message || String(err), "error");
       await refreshNodes().catch(() => {});
     }

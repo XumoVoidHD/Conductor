@@ -331,7 +331,30 @@ class DashboardService:
             command["payload"] = {"graceful": True}
 
         event = self._conductor.enqueue_and_wait(command)
-        self._raise_if_error(event)
+        if event.get("status") == "error":
+            message = str(event.get("message") or "Conductor returned an error")
+            if self._is_node_gone_message(message, node_id):
+                self._nodes.soft_delete(node_id)
+                used = self._nodes.count_active_for_user(self._user.id)
+                raise HTTPException(
+                    status_code=status.HTTP_410_GONE,
+                    detail={
+                        "code": "node_gone",
+                        "message": (
+                            f"Node '{node_id}' is gone "
+                            "(container missing or unknown to Conductor) "
+                            "and was removed from your list. "
+                            f"Active nodes: {used}/{self._user.trading_nodes}."
+                        ),
+                        "node_id": node_id,
+                        "node_count": used,
+                        "max_trading_nodes": self._user.trading_nodes,
+                    },
+                )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=message,
+            )
 
         data = event.get("data") or {}
         if action == "delete":
@@ -488,6 +511,19 @@ class DashboardService:
             ],
             "broker_adapter": row.broker_adapter,
         }
+
+    @staticmethod
+    def _is_node_gone_message(message: str, node_id: str) -> bool:
+        """Conductor/registry or Docker no longer knows this node."""
+        m = message.lower()
+        nid = node_id.lower()
+        if f"node {nid} not found" in m:
+            return True
+        if "container" in m and "not found" in m:
+            return True
+        if "redeploy the node" in m:
+            return True
+        return False
 
     @staticmethod
     def _raise_if_error(event: dict[str, Any]) -> None:
