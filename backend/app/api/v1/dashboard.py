@@ -237,6 +237,23 @@ def halt_node(
     return _service(current_user, db).node_action("halt", payload.node_id)
 
 
+@router.get(
+    "/traders",
+    summary="List trader summaries for your nodes",
+    description=(
+        "Phase-1 observe: one lightweight summary per active trading node "
+        "(trader_id, strategy state, open positions/orders, reachable). "
+        "Queries nodes directly over TCP (summary, with snapshot fallback). "
+        "Returns offline stubs for unreachable nodes. Filter client-side."
+    ),
+)
+def list_traders(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return _service(current_user, db).list_traders()
+
+
 @router.post(
     "/nodes/snapshot",
     summary="Full Nautilus node snapshot",

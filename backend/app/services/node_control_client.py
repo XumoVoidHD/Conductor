@@ -53,3 +53,65 @@ def fetch_node_snapshot(host: str, port: int, *, timeout_sec: float = 20.0) -> d
     if not isinstance(data, dict):
         raise RuntimeError("snapshot payload must be a JSON object")
     return data
+
+
+def _parse_summary_payload(reply: str) -> dict[str, Any]:
+    if reply.startswith("ERROR"):
+        raise RuntimeError(reply)
+    prefix = "OK SUMMARY "
+    if not reply.startswith(prefix):
+        raise RuntimeError(f"unexpected summary reply: {reply[:200]}")
+    payload = reply[len(prefix) :]
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"invalid summary JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("summary payload must be a JSON object")
+    return data
+
+
+def summary_from_full_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Derive a list-row summary from a full snapshot (older nodes without summary)."""
+    node = snapshot.get("node") or {}
+    strategy = snapshot.get("strategy") or {}
+    positions = snapshot.get("positions") or {}
+    orders = snapshot.get("orders") or {}
+    health = snapshot.get("health") or {}
+    return {
+        "schema_version": 1,
+        "kind": "summary",
+        "captured_at": snapshot.get("captured_at"),
+        "node_id": node.get("node_id"),
+        "user_id": node.get("user_id"),
+        "trader_id": node.get("trader_id"),
+        "strategy": {
+            "id": strategy.get("id"),
+            "state": strategy.get("state") or health.get("strategy_state"),
+        },
+        "positions_open": int(positions.get("open_count") or len(positions.get("open") or [])),
+        "orders_open": int(orders.get("open_count") or len(orders.get("open") or [])),
+        "health": {
+            "node_running": bool(health.get("node_running") or node.get("is_running")),
+            "shutting_down": bool(health.get("shutting_down") or node.get("shutting_down")),
+            "strategy_state": strategy.get("state") or health.get("strategy_state"),
+        },
+    }
+
+
+def fetch_node_summary(host: str, port: int, *, timeout_sec: float = 8.0) -> dict[str, Any]:
+    """
+    Lightweight trader summary.
+
+    Prefers TCP ``summary``; falls back to full ``snapshot`` + trim for older nodes.
+    """
+    try:
+        reply = send_node_command(host, port, "summary", timeout_sec=timeout_sec)
+        return _parse_summary_payload(reply)
+    except RuntimeError:
+        pass
+    except ConnectionError:
+        raise
+
+    snapshot = fetch_node_snapshot(host, port, timeout_sec=max(timeout_sec, 15.0))
+    return summary_from_full_snapshot(snapshot)

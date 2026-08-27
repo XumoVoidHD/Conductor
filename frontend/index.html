@@ -99,6 +99,20 @@
           <h2>Nodes <span class="muted" id="nodes-quota">—</span></h2>
           <button type="button" class="btn-ghost" id="refresh-nodes">Refresh</button>
         </div>
+        <div class="filter-bar">
+          <label class="filter-field">
+            <span>Node</span>
+            <select id="filter-node">
+              <option value="">All nodes</option>
+            </select>
+          </label>
+          <label class="filter-field">
+            <span>Broker</span>
+            <select id="filter-broker">
+              <option value="">All brokers</option>
+            </select>
+          </label>
+        </div>
         <div class="nodes-table-wrap">
           <table class="nodes-table" id="nodes-table">
             <thead>
@@ -118,9 +132,40 @@
           </table>
         </div>
       </section>
+
+      <section class="block">
+        <div class="block-head">
+          <h2>Traders <span class="muted" id="traders-count">—</span></h2>
+          <button type="button" class="btn-ghost" id="refresh-traders">Refresh</button>
+        </div>
+        <p class="muted filter-hint">
+          Live summaries from each node (TCP). Filters apply to both tables below without re-fetching.
+        </p>
+        <div class="nodes-table-wrap">
+          <table class="nodes-table" id="traders-table">
+            <thead>
+              <tr>
+                <th>Trader</th>
+                <th>Node</th>
+                <th>Strategy</th>
+                <th>State</th>
+                <th>Broker</th>
+                <th>Pos</th>
+                <th>Orders</th>
+                <th>Reachable</th>
+              </tr>
+            </thead>
+            <tbody id="traders-body">
+              <tr>
+                <td colspan="8" class="muted">No traders yet</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
 
-    <script src="config.js?v=20260801"></script>
-    <script src="app.js?v=20260804b"></script>
+    <script src="config.js?v=20260805"></script>
+    <script src="app.js?v=20260805"></script>
   </body>
 </html>

@@ -408,3 +408,76 @@ def build_node_snapshot(
         "logs": list(recent_logs or [])[-200:],
         "errors": section_errors[-200:],
     }
+
+
+def build_node_summary(
+    node: TradingNode,
+    *,
+    strategy_id: StrategyId,
+    node_id: str,
+    user_id: str,
+    shutting_down: bool = False,
+) -> dict[str, Any]:
+    """Lightweight trader summary for dashboard list views (not full snapshot)."""
+    cache = getattr(node, "cache", None)
+    strategy = None
+    for s in node.trader.strategies():
+        if s.id == strategy_id:
+            strategy = s
+            break
+
+    strategy_state = _collect_strategy_state(strategy, strategy_id)
+    open_positions = _call(cache, "positions_open_count", default=None)
+    if open_positions is None:
+        open_positions = len(_call(cache, "positions_open", default=[]) or [])
+    open_orders = _call(cache, "orders_open_count", default=None)
+    if open_orders is None:
+        open_orders = len(_call(cache, "orders_open", default=[]) or [])
+
+    return {
+        "schema_version": 1,
+        "kind": "summary",
+        "captured_at": _now_iso(),
+        "node_id": node_id,
+        "user_id": user_id,
+        "trader_id": _safe_str(getattr(node, "trader_id", None)),
+        "strategy": {
+            "id": strategy_state.get("id"),
+            "state": strategy_state.get("state"),
+        },
+        "positions_open": int(open_positions or 0),
+        "orders_open": int(open_orders or 0),
+        "health": {
+            "node_running": bool(_call(node, "is_running", default=False)),
+            "shutting_down": shutting_down,
+            "strategy_state": strategy_state.get("state"),
+        },
+    }
+
+
+def summary_from_full_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Derive a list-row summary from a full snapshot (compat / fallback)."""
+    node = snapshot.get("node") or {}
+    strategy = snapshot.get("strategy") or {}
+    positions = snapshot.get("positions") or {}
+    orders = snapshot.get("orders") or {}
+    health = snapshot.get("health") or {}
+    return {
+        "schema_version": 1,
+        "kind": "summary",
+        "captured_at": snapshot.get("captured_at") or _now_iso(),
+        "node_id": node.get("node_id"),
+        "user_id": node.get("user_id"),
+        "trader_id": node.get("trader_id"),
+        "strategy": {
+            "id": strategy.get("id"),
+            "state": strategy.get("state") or health.get("strategy_state"),
+        },
+        "positions_open": int(positions.get("open_count") or len(positions.get("open") or [])),
+        "orders_open": int(orders.get("open_count") or len(orders.get("open") or [])),
+        "health": {
+            "node_running": bool(health.get("node_running") or node.get("is_running")),
+            "shutting_down": bool(health.get("shutting_down") or node.get("shutting_down")),
+            "strategy_state": strategy.get("state") or health.get("strategy_state"),
+        },
+    }

@@ -2,9 +2,11 @@
 
 What we are building, why, and how the pieces fit together at a product level.
 
-**Technical detail:** [`ARCHITECTURE.md`](ARCHITECTURE.md) — components, data flows, env, API, brokers.  
-**Build checklist:** [`TASKS.md`](TASKS.md)  
-**How to run locally:** [`cmd.txt`](cmd.txt) — startup commands only.
+> **Canonical docs:** [`docs/vision.md`](docs/vision.md) (GitBook). Prefer editing there; this file is a convenience mirror.
+
+**Technical detail:** [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`docs/architecture/`](docs/architecture/architecture.md)  
+**Build checklist:** [`TASKS.md`](TASKS.md) · [`docs/status-and-roadmap.md`](docs/status-and-roadmap.md)  
+**How to run locally:** [`cmd.txt`](cmd.txt) · [`docs/getting-started/quickstart.md`](docs/getting-started/quickstart.md)
 
 **Runtime foundation:** [Nautilus Trader](https://nautilus.trader/) runs strategies and brokers. Conductor is a control layer **around** Nautilus, not a replacement.
 

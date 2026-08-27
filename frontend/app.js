@@ -10,11 +10,15 @@
   const statusPill = document.getElementById("status-pill");
   const strategyGrid = document.getElementById("strategy-grid");
   const nodesBody = document.getElementById("nodes-body");
+  const tradersBody = document.getElementById("traders-body");
+  const filterNode = document.getElementById("filter-node");
+  const filterBroker = document.getElementById("filter-broker");
   const userLabel = document.getElementById("user-label");
   const loginForm = document.getElementById("login-form");
   const registerForm = document.getElementById("register-form");
 
   const TOAST_TTL_MS = 3500;
+  const TRADERS_POLL_MS = 15_000;
 
   function getToken() {
     return localStorage.getItem(TOKEN_KEY);
@@ -173,8 +177,11 @@
 
   let nodeQuota = { used: 0, max: 2 };
   let nodesPollTimer = null;
+  let tradersPollTimer = null;
   let cachedNodes = [];
+  let cachedTraders = [];
   const NODES_POLL_MS = 10_000;
+  let filters = { node: "", broker: "" };
 
   function statusClass(status) {
     const s = String(status || "").toLowerCase();
@@ -183,6 +190,7 @@
       return "init";
     }
     if (s === "ready") return "ready";
+    if (s === "offline" || s === "error" || s === "stopped" || s === "missing") return "";
     return "";
   }
 
@@ -196,6 +204,7 @@
 
   function removeNodeFromUi(nodeId, quotaFromServer) {
     cachedNodes = cachedNodes.filter((n) => n.node_id !== nodeId);
+    cachedTraders = cachedTraders.filter((t) => t.node_id !== nodeId);
     if (quotaFromServer) {
       nodeQuota = {
         used: Math.max(0, Number(quotaFromServer.used)),
@@ -207,7 +216,8 @@
         used: Math.max(0, nodeQuota.used - 1),
       };
     }
-    renderNodes(cachedNodes);
+    renderNodes();
+    renderTraders();
   }
 
   function isNodeGoneError(err) {
@@ -243,17 +253,63 @@
       .join("");
   }
 
+  function currentFilters() {
+    return {
+      node: (filterNode && filterNode.value) || filters.node || "",
+      broker: (filterBroker && filterBroker.value) || filters.broker || "",
+    };
+  }
+
+  function matchesFilters(item, f) {
+    if (f.node && item.node_id !== f.node) return false;
+    if (f.broker && String(item.broker_adapter || "") !== f.broker) return false;
+    return true;
+  }
+
+  function syncFilterOptions() {
+    if (!filterNode || !filterBroker) return;
+    const f = currentFilters();
+    const nodeIds = [...new Set(cachedNodes.map((n) => n.node_id).filter(Boolean))].sort();
+    const brokers = [
+      ...new Set(
+        [...cachedNodes, ...cachedTraders]
+          .map((n) => n.broker_adapter)
+          .filter(Boolean),
+      ),
+    ].sort();
+
+    filterNode.innerHTML =
+      `<option value="">All nodes</option>` +
+      nodeIds.map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`).join("");
+    filterBroker.innerHTML =
+      `<option value="">All brokers</option>` +
+      brokers
+        .map((b) => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`)
+        .join("");
+
+    filterNode.value = nodeIds.includes(f.node) ? f.node : "";
+    filterBroker.value = brokers.includes(f.broker) ? f.broker : "";
+    filters = currentFilters();
+  }
+
   function renderNodes(nodes) {
-    cachedNodes = Array.isArray(nodes) ? nodes : cachedNodes;
+    if (Array.isArray(nodes)) cachedNodes = nodes;
     const head = document.getElementById("nodes-quota");
     if (head) {
       head.textContent = `${nodeQuota.used} / ${nodeQuota.max} slots`;
     }
+    syncFilterOptions();
+    const f = currentFilters();
+    const visible = cachedNodes.filter((n) => matchesFilters(n, f));
     if (!cachedNodes.length) {
       nodesBody.innerHTML = `<tr><td colspan="5" class="muted">No nodes for your account</td></tr>`;
       return;
     }
-    nodesBody.innerHTML = cachedNodes
+    if (!visible.length) {
+      nodesBody.innerHTML = `<tr><td colspan="5" class="muted">No nodes match filters</td></tr>`;
+      return;
+    }
+    nodesBody.innerHTML = visible
       .map((n) => {
         const status = n.status || (n.alive ? "Ready" : "Stopped");
         const strategyLabel = n.strategy_name || n.strategy_slug || "—";
@@ -279,6 +335,55 @@
       .join("");
   }
 
+  function renderTraders(traders) {
+    if (Array.isArray(traders)) cachedTraders = traders;
+    const countEl = document.getElementById("traders-count");
+    syncFilterOptions();
+    const f = currentFilters();
+    const visible = cachedTraders.filter((t) => matchesFilters(t, f));
+    if (countEl) {
+      countEl.textContent = cachedTraders.length
+        ? `${visible.length} / ${cachedTraders.length}`
+        : "—";
+    }
+    if (!tradersBody) return;
+    if (!cachedTraders.length) {
+      tradersBody.innerHTML = `<tr><td colspan="8" class="muted">No traders yet — deploy a node</td></tr>`;
+      return;
+    }
+    if (!visible.length) {
+      tradersBody.innerHTML = `<tr><td colspan="8" class="muted">No traders match filters</td></tr>`;
+      return;
+    }
+    tradersBody.innerHTML = visible
+      .map((t) => {
+        const state = t.strategy_state || (t.reachable ? "—" : "offline");
+        const reach = t.reachable ? "yes" : "no";
+        const reachClass = t.reachable ? "on" : "";
+        return `
+        <tr title="${escapeHtml(t.offline_reason || "")}">
+          <td><code>${escapeHtml(t.trader_id || "—")}</code></td>
+          <td><code>${escapeHtml(t.node_id)}</code></td>
+          <td>${escapeHtml(t.strategy_name || t.strategy_slug || "—")}</td>
+          <td>
+            <span class="alive-dot ${statusClass(state)}"></span>
+            ${escapeHtml(state)}
+          </td>
+          <td>${escapeHtml(t.broker_adapter || "—")}</td>
+          <td>${escapeHtml(t.positions_open ?? 0)}</td>
+          <td>${escapeHtml(t.orders_open ?? 0)}</td>
+          <td><span class="alive-dot ${reachClass}"></span>${reach}</td>
+        </tr>`;
+      })
+      .join("");
+  }
+
+  function applyFilters() {
+    filters = currentFilters();
+    renderNodes();
+    renderTraders();
+  }
+
   function escapeHtml(value) {
     return String(value ?? "")
       .replaceAll("&", "&amp;")
@@ -302,10 +407,19 @@
     renderNodes(nodes);
   }
 
+  async function refreshTraders() {
+    const data = await api("/api/v1/dashboard/traders");
+    renderTraders(data.traders || []);
+  }
+
   function stopNodesPoll() {
     if (nodesPollTimer != null) {
       clearInterval(nodesPollTimer);
       nodesPollTimer = null;
+    }
+    if (tradersPollTimer != null) {
+      clearInterval(tradersPollTimer);
+      tradersPollTimer = null;
     }
   }
 
@@ -315,6 +429,10 @@
       if (dashShell.hidden) return;
       refreshNodes().catch(() => {});
     }, NODES_POLL_MS);
+    tradersPollTimer = setInterval(() => {
+      if (dashShell.hidden) return;
+      refreshTraders().catch(() => {});
+    }, TRADERS_POLL_MS);
   }
 
   function switchTab(tab) {
@@ -416,6 +534,7 @@
         toneForAction("deploy"),
       );
       await refreshNodes();
+      await refreshTraders().catch(() => {});
       await refreshStrategies();
     } catch (err) {
       showToast(err.message || String(err), "error");
@@ -462,6 +581,7 @@
         removeNodeFromUi(nodeId);
       }
       await refreshNodes();
+      await refreshTraders().catch(() => {});
       await refreshStrategies();
     } catch (err) {
       if (isNodeGoneError(err)) {
@@ -472,6 +592,7 @@
         );
         // Sync counter + deploy buttons from server (soft-delete frees the slot)
         await refreshNodes().catch(() => {});
+        await refreshTraders().catch(() => {});
         await refreshStrategies().catch(() => {});
         return;
       }
@@ -479,6 +600,9 @@
       await refreshNodes().catch(() => {});
     }
   });
+
+  if (filterNode) filterNode.addEventListener("change", applyFilters);
+  if (filterBroker) filterBroker.addEventListener("change", applyFilters);
 
   document.getElementById("refresh-strategies").addEventListener("click", () => {
     refreshStrategies().catch((err) => showToast(err.message, "error"));
@@ -488,6 +612,12 @@
       .then(() => refreshStrategies())
       .catch((err) => showToast(err.message, "error"));
   });
+  const refreshTradersBtn = document.getElementById("refresh-traders");
+  if (refreshTradersBtn) {
+    refreshTradersBtn.addEventListener("click", () => {
+      refreshTraders().catch((err) => showToast(err.message, "error"));
+    });
+  }
 
   async function enterDashboard(user) {
     showDash(user);
@@ -496,6 +626,7 @@
       refreshStatus(),
       refreshNodes(),
       refreshStrategies(),
+      refreshTraders(),
     ]);
     for (const result of results) {
       if (result.status === "rejected") {

@@ -437,6 +437,96 @@ class DashboardService:
             "captured_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    def list_traders(self) -> dict[str, Any]:
+        """
+        Phase-1 observe: batch lightweight trader summaries for the user's nodes.
+
+        Pulls TCP ``summary`` (or snapshot fallback) per node with bounded
+        concurrency. Offline nodes return a DB-backed stub. Frontend filters
+        locally — this always returns the full set for the user.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import as_completed
+        from datetime import datetime
+        from datetime import timezone
+
+        from app.services.node_control_client import fetch_node_summary
+
+        rows = self._nodes.list_active_for_user(self._user.id)
+        if not rows:
+            return {
+                "status": "ok",
+                "message": "0 trader(s)",
+                "traders": [],
+                "trader_count": 0,
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+        def _one(row: Any) -> dict[str, Any]:
+            host = row.control_host or row.container_name or f"conductor-{row.node_id}"
+            port = int(row.control_port or 9000)
+            base = {
+                "node_id": row.node_id,
+                "trader_id": None,
+                "strategy_slug": row.strategy_slug,
+                "strategy_name": row.strategy_name,
+                "broker_adapter": row.broker_adapter,
+                "db_status": row.status,
+                "reachable": False,
+                "strategy_state": None,
+                "positions_open": 0,
+                "orders_open": 0,
+                "queried_via": {"host": host, "port": port},
+            }
+            try:
+                summary = fetch_node_summary(host, port, timeout_sec=8.0)
+                strategy = summary.get("strategy") or {}
+                health = summary.get("health") or {}
+                return {
+                    **base,
+                    "trader_id": summary.get("trader_id"),
+                    "reachable": True,
+                    "strategy_state": strategy.get("state") or health.get("strategy_state"),
+                    "positions_open": int(summary.get("positions_open") or 0),
+                    "orders_open": int(summary.get("orders_open") or 0),
+                    "health": health,
+                    "captured_at": summary.get("captured_at"),
+                }
+            except ConnectionError:
+                return {
+                    **base,
+                    "trader_id": f"CONDUCTOR-{row.node_id.upper()}",
+                    "strategy_state": "offline",
+                    "offline_reason": f"unreachable at {host}:{port}",
+                    "captured_at": datetime.now(timezone.utc).isoformat(),
+                }
+            except RuntimeError as exc:
+                return {
+                    **base,
+                    "trader_id": f"CONDUCTOR-{row.node_id.upper()}",
+                    "strategy_state": "error",
+                    "offline_reason": str(exc),
+                    "captured_at": datetime.now(timezone.utc).isoformat(),
+                }
+
+        traders: list[dict[str, Any]] = []
+        # Small quotas → 3 concurrent TCP probes is enough
+        with ThreadPoolExecutor(max_workers=min(3, len(rows))) as pool:
+            futures = {pool.submit(_one, row): row.node_id for row in rows}
+            by_id: dict[str, dict[str, Any]] = {}
+            for fut in as_completed(futures):
+                by_id[futures[fut]] = fut.result()
+        # Stable order matching DB list
+        traders = [by_id[row.node_id] for row in rows if row.node_id in by_id]
+
+        return {
+            "status": "ok",
+            "message": f"{len(traders)} trader(s)",
+            "traders": traders,
+            "trader_count": len(traders),
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+        }
+
     @staticmethod
     def _offline_snapshot(row: Any, *, host: str, port: int) -> dict[str, Any]:
         """DB-backed snapshot when the trading node control socket is down."""

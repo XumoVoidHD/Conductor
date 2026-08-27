@@ -2,8 +2,10 @@
 
 How the system is structured, what each piece does, and how it runs today.
 
-**Product goals:** [`PROJECT_VISION.md`](PROJECT_VISION.md)  
-**Build checklist:** [`TASKS.md`](TASKS.md)  
+> **Canonical docs:** [`docs/architecture/`](docs/architecture/architecture.md) (GitBook). Prefer editing there; this file is a convenience mirror.
+
+**Product goals:** [`PROJECT_VISION.md`](PROJECT_VISION.md) · [`docs/vision.md`](docs/vision.md)  
+**Build checklist:** [`TASKS.md`](TASKS.md) · [`docs/status-and-roadmap.md`](docs/status-and-roadmap.md)  
 **Startup commands:** [`cmd.txt`](cmd.txt)
 
 **Foundation:** [Nautilus Trader](https://nautilus.trader/) runs strategies and brokers. Conductor is a control layer around Nautilus, not a replacement.

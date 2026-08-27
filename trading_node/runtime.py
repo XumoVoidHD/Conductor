@@ -24,7 +24,7 @@ from trading_node.brokers import build_broker
 
 GRACEFUL_STRATEGY_STOP_TIMEOUT_SEC = 10.0
 GRACEFUL_STRATEGY_POLL_SEC = 0.1
-KNOWN_COMMANDS = "run, halt, status, reset, shutdown, kill, snapshot"
+KNOWN_COMMANDS = "run, halt, status, reset, shutdown, kill, snapshot, summary"
 RECENT_LOG_LIMIT = 200
 
 
@@ -167,7 +167,7 @@ async def _graceful_shutdown(
 
 
 def _reject_if_shutting_down(state: WorkerState, cmd: str) -> str | None:
-    if cmd in ("status", "kill", "snapshot"):
+    if cmd in ("status", "kill", "snapshot", "summary"):
         return None
     with state.lock:
         if state.shutting_down:
@@ -212,6 +212,41 @@ def _run_snapshot_on_loop(
 
     loop.call_soon_threadsafe(_build)
     return future.result(timeout=15.0)
+
+
+def _run_summary_on_loop(
+    *,
+    loop: asyncio.AbstractEventLoop,
+    node: TradingNode,
+    strategy_id: StrategyId,
+    state: WorkerState,
+) -> dict[str, Any]:
+    import concurrent.futures
+
+    from trading_node.snapshot import build_node_summary
+
+    future: concurrent.futures.Future[dict[str, Any]] = concurrent.futures.Future()
+
+    def _build() -> None:
+        try:
+            with state.lock:
+                shutting_down = state.shutting_down
+                node_id = state.node_id
+                user_id = state.user_id
+            future.set_result(
+                build_node_summary(
+                    node,
+                    strategy_id=strategy_id,
+                    node_id=node_id,
+                    user_id=user_id,
+                    shutting_down=shutting_down,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            future.set_exception(exc)
+
+    loop.call_soon_threadsafe(_build)
+    return future.result(timeout=10.0)
 
 
 def _handle_command(
@@ -277,6 +312,21 @@ def _handle_command(
             return f"ERROR snapshot failed: {exc}"
         # Compact single-line JSON after OK marker for TCP protocol.
         return "OK SNAPSHOT " + json.dumps(payload, separators=(",", ":"), default=str)
+
+    if cmd == "summary":
+        import json
+
+        try:
+            payload = _run_summary_on_loop(
+                loop=loop,
+                node=node,
+                strategy_id=strategy_id,
+                state=state,
+            )
+        except Exception as exc:  # noqa: BLE001
+            state.push_error(f"summary failed: {exc}")
+            return f"ERROR summary failed: {exc}"
+        return "OK SUMMARY " + json.dumps(payload, separators=(",", ":"), default=str)
 
     if cmd == "shutdown":
         with state.lock:

@@ -1,0 +1,25 @@
+meta {
+  name: List Traders
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/api/v1/dashboard/traders
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+vars:pre-request {
+  baseUrl: http://127.0.0.1:8000
+}
+
+docs {
+  Phase-1 observe: lightweight trader summary for every active node.
+  TCP summary (snapshot fallback). Offline stubs when unreachable.
+  Filter client-side by node_id / broker_adapter.
+}
