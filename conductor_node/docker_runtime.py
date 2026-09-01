@@ -13,6 +13,7 @@ from docker.types import Mount
 
 from conductor_node.settings import DOCKER_NETWORK
 from conductor_node.settings import DOCKER_NODES_VOLUME
+from conductor_node.settings import REDIS_URL
 from conductor_node.settings import TRADING_NODE_IMAGE
 
 
@@ -106,6 +107,7 @@ def spawn_trading_node_container(
             "CONDUCTOR_BOOTSTRAP": container_bootstrap,
             "CONDUCTOR_BOOTSTRAP_JSON": bootstrap_json,
             "CONTROL_BIND_HOST": "0.0.0.0",
+            "REDIS_URL": REDIS_URL,
         },
         "labels": {
             "conductor.stack": "trading",

@@ -535,6 +535,109 @@ body {
   font-size: 0.8rem;
 }
 
+.log-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(4, 8, 6, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.log-panel[hidden] {
+  display: none !important;
+}
+
+.log-panel-card {
+  width: min(920px, 100%);
+  max-height: min(78vh, 720px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  animation: rise 0.35s ease-out both;
+}
+
+.log-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 1.1rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.log-panel-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.log-panel-sub {
+  margin: 0.25rem 0 0;
+  font-size: 0.82rem;
+}
+
+.log-panel-body {
+  margin: 0;
+  padding: 0.85rem 1rem 1rem;
+  overflow: auto;
+  flex: 1;
+  min-height: 280px;
+  font-family: "Consolas", "SFMono-Regular", "Menlo", monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #c8ead6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-panel-body .log-line-error {
+  color: #ffb4aa;
+}
+
+.log-panel-body .log-line-warn {
+  color: #ffd98a;
+}
+
+.trade-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin: 0 0 0.85rem;
+  flex-wrap: wrap;
+}
+
+.trade-tab {
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 0.4rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.trade-tab.is-active {
+  color: var(--bg-deep);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.side-buy {
+  color: #7dffb8;
+}
+
+.side-sell {
+  color: #ffb4aa;
+}
+
 @keyframes pulse-dot {
   0%,
   100% {

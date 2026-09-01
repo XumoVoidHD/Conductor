@@ -527,6 +527,122 @@ class DashboardService:
             "captured_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    def list_trades(self) -> dict[str, Any]:
+        """
+        Batch TCP snapshots and flatten open positions, orders, and fills
+        across all active nodes for the user.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import as_completed
+        from datetime import datetime
+        from datetime import timezone
+
+        from app.services.node_control_client import fetch_node_snapshot
+
+        rows = self._nodes.list_active_for_user(self._user.id)
+        if not rows:
+            return {
+                "status": "ok",
+                "message": "0 node(s)",
+                "positions": [],
+                "orders": [],
+                "fills": [],
+                "position_count": 0,
+                "order_count": 0,
+                "fill_count": 0,
+                "node_count": 0,
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+        def _node_meta(row: Any, snapshot: dict[str, Any] | None, *, reachable: bool) -> dict[str, Any]:
+            node = (snapshot or {}).get("node") or {}
+            strategy = (snapshot or {}).get("strategy") or {}
+            return {
+                "node_id": row.node_id,
+                "strategy_slug": row.strategy_slug,
+                "strategy_name": row.strategy_name,
+                "broker_adapter": row.broker_adapter,
+                "trader_id": node.get("trader_id"),
+                "strategy_state": strategy.get("state"),
+                "reachable": reachable,
+            }
+
+        def _one(row: Any) -> dict[str, Any]:
+            host = row.control_host or row.container_name or f"conductor-{row.node_id}"
+            port = int(row.control_port or 9000)
+            try:
+                snapshot = fetch_node_snapshot(host, port, timeout_sec=15.0)
+            except ConnectionError:
+                return {
+                    "node_id": row.node_id,
+                    "reachable": False,
+                    "positions": [],
+                    "orders": [],
+                    "fills": [],
+                }
+            except RuntimeError:
+                return {
+                    "node_id": row.node_id,
+                    "reachable": False,
+                    "positions": [],
+                    "orders": [],
+                    "fills": [],
+                }
+
+            meta = _node_meta(row, snapshot, reachable=True)
+            positions_block = snapshot.get("positions") or {}
+            orders_block = snapshot.get("orders") or {}
+
+            positions = [{**meta, **pos} for pos in (positions_block.get("open") or [])]
+            orders: list[dict[str, Any]] = []
+            for bucket in ("open", "inflight"):
+                for order in orders_block.get(bucket) or []:
+                    orders.append({**meta, **order, "order_bucket": bucket})
+            fills = [{**meta, **fill} for fill in (snapshot.get("fills") or [])]
+
+            return {
+                "node_id": row.node_id,
+                "reachable": True,
+                "positions": positions,
+                "orders": orders,
+                "fills": fills,
+            }
+
+        by_id: dict[str, dict[str, Any]] = {}
+        with ThreadPoolExecutor(max_workers=min(3, len(rows))) as pool:
+            futures = {pool.submit(_one, row): row.node_id for row in rows}
+            for fut in as_completed(futures):
+                by_id[futures[fut]] = fut.result()
+
+        positions: list[dict[str, Any]] = []
+        orders: list[dict[str, Any]] = []
+        fills: list[dict[str, Any]] = []
+        for row in rows:
+            chunk = by_id.get(row.node_id) or {
+                "positions": [],
+                "orders": [],
+                "fills": [],
+            }
+            positions.extend(chunk.get("positions") or [])
+            orders.extend(chunk.get("orders") or [])
+            fills.extend(chunk.get("fills") or [])
+
+        return {
+            "status": "ok",
+            "message": (
+                f"{len(positions)} position(s), {len(orders)} order(s), "
+                f"{len(fills)} fill(s) across {len(rows)} node(s)"
+            ),
+            "positions": positions,
+            "orders": orders,
+            "fills": fills,
+            "position_count": len(positions),
+            "order_count": len(orders),
+            "fill_count": len(fills),
+            "node_count": len(rows),
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+        }
+
     @staticmethod
     def _offline_snapshot(row: Any, *, host: str, port: int) -> dict[str, Any]:
         """DB-backed snapshot when the trading node control socket is down."""

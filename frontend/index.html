@@ -163,9 +163,101 @@
           </table>
         </div>
       </section>
+
+      <section class="block">
+        <div class="block-head">
+          <h2>Trades <span class="muted" id="trades-count">—</span></h2>
+          <button type="button" class="btn-ghost" id="refresh-trades">Refresh</button>
+        </div>
+        <p class="muted filter-hint">
+          Open positions, orders, and fills from each node (TCP snapshot). Filters above apply here too.
+        </p>
+        <div class="trade-tabs" role="tablist">
+          <button type="button" class="trade-tab is-active" data-trade-tab="positions" id="trade-tab-positions">
+            Positions
+          </button>
+          <button type="button" class="trade-tab" data-trade-tab="orders" id="trade-tab-orders">
+            Orders
+          </button>
+          <button type="button" class="trade-tab" data-trade-tab="fills" id="trade-tab-fills">
+            Fills
+          </button>
+        </div>
+        <div class="nodes-table-wrap" id="trades-panel-positions">
+          <table class="nodes-table" id="positions-table">
+            <thead>
+              <tr>
+                <th>Node</th>
+                <th>Strategy</th>
+                <th>Instrument</th>
+                <th>Side</th>
+                <th>Qty</th>
+                <th>Avg open</th>
+                <th>Unreal. PnL</th>
+                <th>Broker</th>
+              </tr>
+            </thead>
+            <tbody id="positions-body">
+              <tr><td colspan="8" class="muted">No open positions</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="nodes-table-wrap" id="trades-panel-orders" hidden>
+          <table class="nodes-table" id="orders-table">
+            <thead>
+              <tr>
+                <th>Node</th>
+                <th>Strategy</th>
+                <th>Instrument</th>
+                <th>Side</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Qty</th>
+                <th>Price</th>
+                <th>Broker</th>
+              </tr>
+            </thead>
+            <tbody id="orders-body">
+              <tr><td colspan="9" class="muted">No open orders</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="nodes-table-wrap" id="trades-panel-fills" hidden>
+          <table class="nodes-table" id="fills-table">
+            <thead>
+              <tr>
+                <th>Node</th>
+                <th>Strategy</th>
+                <th>Instrument</th>
+                <th>Side</th>
+                <th>Filled</th>
+                <th>Avg px</th>
+                <th>Status</th>
+                <th>Broker</th>
+              </tr>
+            </thead>
+            <tbody id="fills-body">
+              <tr><td colspan="8" class="muted">No fills yet</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
 
-    <script src="config.js?v=20260805"></script>
-    <script src="app.js?v=20260805"></script>
+    <div class="log-panel" id="log-panel" hidden>
+      <div class="log-panel-card" role="dialog" aria-labelledby="log-panel-title">
+        <div class="log-panel-head">
+          <div>
+            <h2 id="log-panel-title">Node logs</h2>
+            <p class="muted log-panel-sub" id="log-panel-node">—</p>
+          </div>
+          <button type="button" class="btn-ghost" id="log-panel-close">Close</button>
+        </div>
+        <pre class="log-panel-body" id="log-panel-body">Connecting…</pre>
+      </div>
+    </div>
+
+    <script src="config.js?v=20260901c"></script>
+    <script src="app.js?v=20260901c"></script>
   </body>
 </html>

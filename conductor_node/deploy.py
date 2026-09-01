@@ -187,6 +187,7 @@ def spawn_trading_node(
         env = os.environ.copy()
         env["CONDUCTOR_BOOTSTRAP"] = str(bootstrap_path)
         env["PYTHONPATH"] = str(REPO_ROOT)
+        env.setdefault("REDIS_URL", os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"))
 
         process = subprocess.Popen(
             [sys.executable, "-m", "trading_node"],

@@ -254,6 +254,22 @@ def list_traders(
     return _service(current_user, db).list_traders()
 
 
+@router.get(
+    "/trades",
+    summary="List positions, orders, and fills across your nodes",
+    description=(
+        "Queries each active trading node via TCP snapshot and returns flattened "
+        "open positions, open/inflight orders, and fills with node/strategy context. "
+        "Unreachable nodes contribute no rows. Filter client-side by node or broker."
+    ),
+)
+def list_trades(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return _service(current_user, db).list_trades()
+
+
 @router.post(
     "/nodes/snapshot",
     summary="Full Nautilus node snapshot",

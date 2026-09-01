@@ -61,6 +61,10 @@ class Settings(BaseSettings):
         default=20.0,
         alias="CONDUCTOR_EVENT_TIMEOUT_SEC",
     )
+    observe_events_stream: str = Field(
+        default="observe:events",
+        alias="OBSERVE_EVENTS_STREAM",
+    )
 
     # Default Bybit deploy credentials (from env — not from browser)
     bybit_environment: str = Field(default="testnet", alias="BYBIT_ENVIRONMENT")

@@ -1,0 +1,24 @@
+meta {
+  name: List Trades
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/api/v1/dashboard/trades
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+vars:pre-request {
+  baseUrl: http://127.0.0.1:8000
+}
+
+docs {
+  Batch TCP snapshot per node. Returns flattened positions, orders, fills
+  with node_id / strategy / broker on each row. Filter client-side.
+}

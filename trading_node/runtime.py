@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import logging
 import os
 import socket
 import sys
@@ -10,6 +11,7 @@ import threading
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
+from typing import TextIO
 
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import TradingNodeConfig
@@ -21,6 +23,9 @@ from nautilus_trader.trading.strategy import Strategy
 from trading_node.bootstrap import TradingNodeBootstrap
 from trading_node.bootstrap import load_bootstrap
 from trading_node.brokers import build_broker
+from trading_node.observe import LogPublisher
+from trading_node.observe import RedisLogHandler
+from trading_node.observe import build_log_publisher
 
 GRACEFUL_STRATEGY_STOP_TIMEOUT_SEC = 10.0
 GRACEFUL_STRATEGY_POLL_SEC = 0.1
@@ -36,18 +41,74 @@ class WorkerState:
     recent_errors: list[str] = field(default_factory=list)
     node_id: str = ""
     user_id: str = ""
+    log_publisher: LogPublisher | None = None
 
     def push_log(self, message: str) -> None:
         with self.lock:
             self.recent_logs.append(message)
             if len(self.recent_logs) > RECENT_LOG_LIMIT:
                 self.recent_logs = self.recent_logs[-RECENT_LOG_LIMIT:]
+        if self.log_publisher is not None:
+            self.log_publisher.publish_log(message, level="INFO")
 
     def push_error(self, message: str) -> None:
         with self.lock:
             self.recent_errors.append(message)
             if len(self.recent_errors) > RECENT_LOG_LIMIT:
                 self.recent_errors = self.recent_errors[-RECENT_LOG_LIMIT:]
+        if self.log_publisher is not None:
+            self.log_publisher.publish_log(message, level="ERROR")
+
+
+class _StreamTee(TextIO):
+    """Mirror stdout/stderr lines to the observe log publisher."""
+
+    def __init__(self, original: TextIO, publisher: LogPublisher, *, level: str) -> None:
+        self._original = original
+        self._publisher = publisher
+        self._level = level
+        self._buffer = ""
+
+    def write(self, data: str) -> int:
+        written = self._original.write(data)
+        if not data:
+            return written
+        self._buffer += data
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            stripped = line.strip()
+            if stripped:
+                self._publisher.publish_log(stripped, level=self._level)
+        return written
+
+    def flush(self) -> None:
+        self._original.flush()
+        if self._buffer.strip():
+            self._publisher.publish_log(self._buffer.strip(), level=self._level)
+            self._buffer = ""
+
+    def isatty(self) -> bool:
+        return self._original.isatty()
+
+
+def _install_observe_logging(bootstrap: TradingNodeBootstrap) -> LogPublisher | None:
+    publisher = build_log_publisher(
+        user_id=bootstrap.user_id,
+        node_id=bootstrap.node_id,
+    )
+    if publisher is None:
+        return None
+
+    handler = RedisLogHandler(publisher)
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(name)s %(levelname)s: %(message)s"),
+    )
+    for logger_name in ("", "nautilus_trader", "trading_node"):
+        logging.getLogger(logger_name).addHandler(handler)
+
+    sys.stdout = _StreamTee(sys.stdout, publisher, level="INFO")  # type: ignore[assignment]
+    sys.stderr = _StreamTee(sys.stderr, publisher, level="ERROR")  # type: ignore[assignment]
+    return publisher
 
 
 def _coerce_strategy_config_value(key: str, value: Any) -> Any:
@@ -400,6 +461,7 @@ async def _run_node(
     node: TradingNode,
     strategy_id: StrategyId,
     bootstrap: TradingNodeBootstrap,
+    log_publisher: LogPublisher | None = None,
 ) -> None:
     await node.kernel.start_async()
     node.trader.stop_strategy(strategy_id)
@@ -411,6 +473,7 @@ async def _run_node(
     state = WorkerState(
         node_id=bootstrap.node_id,
         user_id=bootstrap.user_id,
+        log_publisher=log_publisher,
     )
     state.push_log(f"trading node ready node_id={bootstrap.node_id}")
     stop_event = threading.Event()
@@ -448,6 +511,7 @@ async def _run_node(
 
 def run() -> None:
     bootstrap = load_bootstrap()
+    log_publisher = _install_observe_logging(bootstrap)
     node, strategy_id = _build_node(bootstrap)
 
     broker_cfg = bootstrap.broker.config
@@ -461,7 +525,7 @@ def run() -> None:
     node.build()
     loop = node.kernel.loop
     try:
-        loop.run_until_complete(_run_node(node, strategy_id, bootstrap))
+        loop.run_until_complete(_run_node(node, strategy_id, bootstrap, log_publisher))
     except KeyboardInterrupt:
         if node.is_running():
             loop.run_until_complete(

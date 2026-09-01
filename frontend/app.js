@@ -11,14 +11,26 @@
   const strategyGrid = document.getElementById("strategy-grid");
   const nodesBody = document.getElementById("nodes-body");
   const tradersBody = document.getElementById("traders-body");
+  const positionsBody = document.getElementById("positions-body");
+  const ordersBody = document.getElementById("orders-body");
+  const fillsBody = document.getElementById("fills-body");
   const filterNode = document.getElementById("filter-node");
   const filterBroker = document.getElementById("filter-broker");
   const userLabel = document.getElementById("user-label");
   const loginForm = document.getElementById("login-form");
   const registerForm = document.getElementById("register-form");
+  const logPanel = document.getElementById("log-panel");
+  const logPanelBody = document.getElementById("log-panel-body");
+  const logPanelNode = document.getElementById("log-panel-node");
+  const logPanelClose = document.getElementById("log-panel-close");
 
   const TOAST_TTL_MS = 3500;
   const TRADERS_POLL_MS = 15_000;
+  const TRADES_POLL_MS = 15_000;
+  const MAX_LOG_LINES = 500;
+
+  let logSocket = null;
+  let logLines = [];
 
   function getToken() {
     return localStorage.getItem(TOKEN_KEY);
@@ -178,8 +190,11 @@
   let nodeQuota = { used: 0, max: 2 };
   let nodesPollTimer = null;
   let tradersPollTimer = null;
+  let tradesPollTimer = null;
   let cachedNodes = [];
   let cachedTraders = [];
+  let cachedTrades = { positions: [], orders: [], fills: [] };
+  let activeTradeTab = "positions";
   const NODES_POLL_MS = 10_000;
   let filters = { node: "", broker: "" };
 
@@ -205,6 +220,11 @@
   function removeNodeFromUi(nodeId, quotaFromServer) {
     cachedNodes = cachedNodes.filter((n) => n.node_id !== nodeId);
     cachedTraders = cachedTraders.filter((t) => t.node_id !== nodeId);
+    cachedTrades = {
+      positions: cachedTrades.positions.filter((r) => r.node_id !== nodeId),
+      orders: cachedTrades.orders.filter((r) => r.node_id !== nodeId),
+      fills: cachedTrades.fills.filter((r) => r.node_id !== nodeId),
+    };
     if (quotaFromServer) {
       nodeQuota = {
         used: Math.max(0, Number(quotaFromServer.used)),
@@ -218,6 +238,7 @@
     }
     renderNodes();
     renderTraders();
+    renderTrades();
   }
 
   function isNodeGoneError(err) {
@@ -327,6 +348,7 @@
               <button type="button" class="btn-tiny" data-action="run" data-node="${escapeHtml(n.node_id)}">Run</button>
               <button type="button" class="btn-tiny" data-action="stop" data-node="${escapeHtml(n.node_id)}">Stop</button>
               <button type="button" class="btn-tiny" data-action="restart" data-node="${escapeHtml(n.node_id)}">Restart</button>
+              <button type="button" class="btn-tiny" data-action="logs" data-node="${escapeHtml(n.node_id)}">Logs</button>
               <button type="button" class="btn-tiny danger" data-action="delete" data-node="${escapeHtml(n.node_id)}">Delete</button>
             </div>
           </td>
@@ -382,6 +404,109 @@
     filters = currentFilters();
     renderNodes();
     renderTraders();
+    renderTrades();
+  }
+
+  function sideClass(side) {
+    const s = String(side || "").toLowerCase();
+    if (s.includes("buy")) return "side-buy";
+    if (s.includes("sell")) return "side-sell";
+    return "";
+  }
+
+  function switchTradeTab(tab) {
+    activeTradeTab = tab;
+    document.querySelectorAll(".trade-tab").forEach((el) => {
+      el.classList.toggle("is-active", el.getAttribute("data-trade-tab") === tab);
+    });
+    document.getElementById("trades-panel-positions").hidden = tab !== "positions";
+    document.getElementById("trades-panel-orders").hidden = tab !== "orders";
+    document.getElementById("trades-panel-fills").hidden = tab !== "fills";
+  }
+
+  function renderTrades(data) {
+    if (data) {
+      cachedTrades = {
+        positions: data.positions || [],
+        orders: data.orders || [],
+        fills: data.fills || [],
+      };
+    }
+    const countEl = document.getElementById("trades-count");
+    const f = currentFilters();
+    const pos = cachedTrades.positions.filter((r) => matchesFilters(r, f));
+    const ord = cachedTrades.orders.filter((r) => matchesFilters(r, f));
+    const fil = cachedTrades.fills.filter((r) => matchesFilters(r, f));
+    if (countEl) {
+      countEl.textContent = `${pos.length} pos · ${ord.length} ord · ${fil.length} fills`;
+    }
+
+    if (positionsBody) {
+      if (!pos.length) {
+        positionsBody.innerHTML = `<tr><td colspan="8" class="muted">No open positions${f.node || f.broker ? " match filters" : ""}</td></tr>`;
+      } else {
+        positionsBody.innerHTML = pos
+          .map(
+            (p) => `
+        <tr title="${p.reachable === false ? "Node offline" : ""}">
+          <td><code>${escapeHtml(p.node_id)}</code></td>
+          <td>${escapeHtml(p.strategy_name || p.strategy_slug || "—")}</td>
+          <td><code>${escapeHtml(p.instrument_id || "—")}</code></td>
+          <td><span class="${sideClass(p.side)}">${escapeHtml(p.side || "—")}</span></td>
+          <td>${escapeHtml(p.quantity ?? "—")}</td>
+          <td>${escapeHtml(p.avg_px_open ?? "—")}</td>
+          <td>${escapeHtml(p.unrealized_pnl ?? "—")}</td>
+          <td>${escapeHtml(p.broker_adapter || "—")}</td>
+        </tr>`,
+          )
+          .join("");
+      }
+    }
+
+    if (ordersBody) {
+      if (!ord.length) {
+        ordersBody.innerHTML = `<tr><td colspan="9" class="muted">No open orders${f.node || f.broker ? " match filters" : ""}</td></tr>`;
+      } else {
+        ordersBody.innerHTML = ord
+          .map(
+            (o) => `
+        <tr title="${escapeHtml(o.order_bucket || "")}${o.reachable === false ? " · offline" : ""}">
+          <td><code>${escapeHtml(o.node_id)}</code></td>
+          <td>${escapeHtml(o.strategy_name || o.strategy_slug || "—")}</td>
+          <td><code>${escapeHtml(o.instrument_id || "—")}</code></td>
+          <td><span class="${sideClass(o.side)}">${escapeHtml(o.side || "—")}</span></td>
+          <td>${escapeHtml(o.order_type || "—")}</td>
+          <td>${escapeHtml(o.status || o.order_bucket || "—")}</td>
+          <td>${escapeHtml(o.quantity ?? o.leaves_qty ?? "—")}</td>
+          <td>${escapeHtml(o.price ?? o.avg_px ?? "—")}</td>
+          <td>${escapeHtml(o.broker_adapter || "—")}</td>
+        </tr>`,
+          )
+          .join("");
+      }
+    }
+
+    if (fillsBody) {
+      if (!fil.length) {
+        fillsBody.innerHTML = `<tr><td colspan="8" class="muted">No fills yet${f.node || f.broker ? " match filters" : ""}</td></tr>`;
+      } else {
+        fillsBody.innerHTML = fil
+          .map(
+            (fill) => `
+        <tr>
+          <td><code>${escapeHtml(fill.node_id)}</code></td>
+          <td>${escapeHtml(fill.strategy_name || fill.strategy_slug || "—")}</td>
+          <td><code>${escapeHtml(fill.instrument_id || "—")}</code></td>
+          <td><span class="${sideClass(fill.side)}">${escapeHtml(fill.side || "—")}</span></td>
+          <td>${escapeHtml(fill.filled_qty ?? "—")}</td>
+          <td>${escapeHtml(fill.avg_px ?? "—")}</td>
+          <td>${escapeHtml(fill.status ?? "—")}</td>
+          <td>${escapeHtml(fill.broker_adapter || "—")}</td>
+        </tr>`,
+          )
+          .join("");
+      }
+    }
   }
 
   function escapeHtml(value) {
@@ -390,6 +515,91 @@
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;");
+  }
+
+  function wsBaseUrl() {
+    return API_BASE.replace(/^http/i, (scheme) => (scheme.toLowerCase() === "https" ? "wss" : "ws"));
+  }
+
+  function appendLogLine(line, level = "INFO") {
+    logLines.push({ line, level });
+    if (logLines.length > MAX_LOG_LINES) {
+      logLines = logLines.slice(-MAX_LOG_LINES);
+    }
+    if (!logPanelBody) return;
+    const cls =
+      level === "ERROR" || level === "CRITICAL"
+        ? "log-line-error"
+        : level === "WARNING" || level === "WARN"
+          ? "log-line-warn"
+          : "";
+    logPanelBody.insertAdjacentHTML(
+      "beforeend",
+      `<span class="${cls}">${escapeHtml(line)}</span>\n`,
+    );
+    logPanelBody.scrollTop = logPanelBody.scrollHeight;
+  }
+
+  function closeLogPanel() {
+    if (logSocket) {
+      logSocket.close();
+      logSocket = null;
+    }
+    logLines = [];
+    if (logPanel) logPanel.hidden = true;
+    if (logPanelBody) logPanelBody.textContent = "";
+  }
+
+  function openLogPanel(nodeId) {
+    const token = getToken();
+    if (!token) {
+      showToast("Sign in to view logs", "error");
+      return;
+    }
+    closeLogPanel();
+    if (logPanel) logPanel.hidden = false;
+    if (logPanelNode) logPanelNode.textContent = nodeId;
+    if (logPanelBody) logPanelBody.textContent = "Loading container logs…\n";
+
+    const url = `${wsBaseUrl()}/api/v1/dashboard/nodes/${encodeURIComponent(nodeId)}/logs/stream?token=${encodeURIComponent(token)}`;
+    const ws = new WebSocket(url);
+    logSocket = ws;
+
+    ws.addEventListener("open", () => {
+      if (logPanelBody && logPanelBody.textContent === "Loading container logs…\n") {
+        logPanelBody.textContent = "";
+      }
+    });
+
+    ws.addEventListener("message", (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.error) {
+          appendLogLine(`Error: ${payload.error}`, "ERROR");
+          return;
+        }
+        if (payload.type === "connected") {
+          appendLogLine(`Streaming logs for ${payload.node_id} (docker logs -f)`, "INFO");
+          return;
+        }
+        if (payload.type === "log" && payload.line) {
+          appendLogLine(payload.line, payload.level || "INFO");
+        }
+      } catch {
+        appendLogLine(String(event.data), "INFO");
+      }
+    });
+
+    ws.addEventListener("close", () => {
+      if (logSocket === ws) {
+        appendLogLine("— stream closed —", "INFO");
+        logSocket = null;
+      }
+    });
+
+    ws.addEventListener("error", () => {
+      appendLogLine("WebSocket connection failed", "ERROR");
+    });
   }
 
   async function refreshStrategies() {
@@ -412,6 +622,11 @@
     renderTraders(data.traders || []);
   }
 
+  async function refreshTrades() {
+    const data = await api("/api/v1/dashboard/trades");
+    renderTrades(data);
+  }
+
   function stopNodesPoll() {
     if (nodesPollTimer != null) {
       clearInterval(nodesPollTimer);
@@ -420,6 +635,10 @@
     if (tradersPollTimer != null) {
       clearInterval(tradersPollTimer);
       tradersPollTimer = null;
+    }
+    if (tradesPollTimer != null) {
+      clearInterval(tradesPollTimer);
+      tradesPollTimer = null;
     }
   }
 
@@ -433,6 +652,10 @@
       if (dashShell.hidden) return;
       refreshTraders().catch(() => {});
     }, TRADERS_POLL_MS);
+    tradesPollTimer = setInterval(() => {
+      if (dashShell.hidden) return;
+      refreshTrades().catch(() => {});
+    }, TRADES_POLL_MS);
   }
 
   function switchTab(tab) {
@@ -497,6 +720,7 @@
   });
 
   document.getElementById("logout-btn").addEventListener("click", () => {
+    closeLogPanel();
     stopNodesPoll();
     clearSession();
     showAuth();
@@ -535,6 +759,7 @@
       );
       await refreshNodes();
       await refreshTraders().catch(() => {});
+      await refreshTrades().catch(() => {});
       await refreshStrategies();
     } catch (err) {
       showToast(err.message || String(err), "error");
@@ -548,6 +773,11 @@
     if (!btn) return;
     const action = btn.getAttribute("data-action");
     const nodeId = btn.getAttribute("data-node");
+
+    if (action === "logs") {
+      openLogPanel(nodeId);
+      return;
+    }
 
     // Immediate pending status; final status comes from refresh after confirm
     if (action === "run") {
@@ -582,6 +812,7 @@
       }
       await refreshNodes();
       await refreshTraders().catch(() => {});
+      await refreshTrades().catch(() => {});
       await refreshStrategies();
     } catch (err) {
       if (isNodeGoneError(err)) {
@@ -618,6 +849,26 @@
       refreshTraders().catch((err) => showToast(err.message, "error"));
     });
   }
+  const refreshTradesBtn = document.getElementById("refresh-trades");
+  if (refreshTradesBtn) {
+    refreshTradesBtn.addEventListener("click", () => {
+      refreshTrades().catch((err) => showToast(err.message, "error"));
+    });
+  }
+  document.querySelectorAll(".trade-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      switchTradeTab(btn.getAttribute("data-trade-tab") || "positions");
+    });
+  });
+
+  if (logPanelClose) {
+    logPanelClose.addEventListener("click", closeLogPanel);
+  }
+  if (logPanel) {
+    logPanel.addEventListener("click", (event) => {
+      if (event.target === logPanel) closeLogPanel();
+    });
+  }
 
   async function enterDashboard(user) {
     showDash(user);
@@ -627,6 +878,7 @@
       refreshNodes(),
       refreshStrategies(),
       refreshTraders(),
+      refreshTrades(),
     ]);
     for (const result of results) {
       if (result.status === "rejected") {
