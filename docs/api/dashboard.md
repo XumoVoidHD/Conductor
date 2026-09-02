@@ -59,6 +59,20 @@ If Conductor/Docker no longer has the node, response is **410** with detail code
 
 ---
 
+## Trades
+
+`GET /dashboard/trades` — aggregated **positions**, **orders**, and **fills** across the user’s nodes (live TCP queries; empty stubs when offline).
+
+---
+
+## Log stream (WebSocket)
+
+`GET /api/v1/dashboard/nodes/{node_id}/logs/stream?token=<JWT>`
+
+Upgrades to WebSocket. Streams Docker container logs when the node runs in Docker; may fall back to Redis observe stream. Used by the dashboard **Logs** modal.
+
+---
+
 ## See also
 
 - [Traders & snapshot](traders-and-snapshot.md)

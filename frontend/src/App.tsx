@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { AmbientBackground } from "@/components/layout/ambient-background";
 import { useAuth } from "@/lib/auth-context";
+import { TradingModeProvider } from "@/lib/trading-mode-context";
 import { AuthPage } from "@/pages/AuthPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 
@@ -19,5 +20,11 @@ export function AppShell() {
     );
   }
 
-  return user ? <DashboardPage /> : <AuthPage />;
+  return user ? (
+    <TradingModeProvider>
+      <DashboardPage />
+    </TradingModeProvider>
+  ) : (
+    <AuthPage />
+  );
 }

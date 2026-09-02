@@ -60,6 +60,14 @@ curl http://127.0.0.1:8000/health
 - UI: http://127.0.0.1:5500  
 - API: http://127.0.0.1:8000  
 
+**Frontend development** (hot reload, API proxy):
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+See [Frontend (Vite + React)](../developers/frontend.md).
+
 Next: [First deploy](first-deploy.md) · [Environment](environment.md)
 
 ---

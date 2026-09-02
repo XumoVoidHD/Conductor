@@ -1,6 +1,8 @@
 # Traders panel
 
-Phase-1 observe UI: one row per trading node’s Nautilus trader.
+Phase-1 observe API: one row per trading node’s Nautilus trader.
+
+> **Dashboard UI:** The current React dashboard uses the **[Trades](dashboard.md)** panel (`GET /dashboard/trades`) instead of this Traders table. The traders API remains available for Bruno and integrations.
 
 ---
 

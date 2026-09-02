@@ -75,11 +75,11 @@ Full detail: [Status & roadmap](../status-and-roadmap.md).
 
 ### Frontend (`frontend/`)
 
-Static HTML/JS — register, login, strategies, nodes, traders. Bearer token on API calls. Toasts for actions; 10s node poll; 15s traders poll; optimistic status; filters for node/broker.
+**Vite + React** dashboard — register/login, strategies, nodes, **Trades** panel, log streaming, **Live / Paper / Backtest** mode switcher (Paper/Backtest UI-only today). TanStack Query polling; JWT in `localStorage`; glassmorphism dark UI. See [Frontend](../developers/frontend.md) and [Dashboard UI](../guides/dashboard.md).
 
 ### Backend (`backend/`)
 
-FastAPI. Auth (Argon2 + JWT). Dashboard stamps Conductor commands. Vault resolve. Soft-delete and quota. Direct TCP for snapshot/traders via `node_control_client.py`.
+FastAPI. Auth (Argon2 + JWT). Dashboard stamps Conductor commands. Vault resolve. Soft-delete and quota. Direct TCP for snapshot/traders/trades via control clients. Docker log WebSocket for the UI.
 
 ### Conductor (`conductor_node/`)
 

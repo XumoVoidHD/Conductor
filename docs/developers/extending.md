@@ -33,7 +33,8 @@ Keep **control** (lifecycle) on Conductor and **observe** (read state) on direct
 
 1. Prefer existing poll + client-side filter for small lists  
 2. Call backend APIs only — never talk to Redis/Docker from the browser  
-3. Match toast / status conventions in `frontend/src/pages/DashboardPage.tsx`
+3. Match toast / status conventions in `frontend/src/pages/DashboardPage.tsx`  
+4. For mode-specific behavior, use `useTradingMode()` from `trading-mode-context.tsx` — see [Trading modes](../guides/trading-modes.md)
 
 ---
 

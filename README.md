@@ -1,8 +1,8 @@
 # Conductor
 
-Control plane for running [Nautilus Trader](https://nautilus.trader/) strategies on long-lived workers — multi-tenant API, strategy vault, Docker orchestration, and an observe path for live trader state.
+Control plane for running [Nautilus Trader](https://nautilus.trader/) strategies on long-lived workers — multi-tenant API, strategy vault, Docker orchestration, Vite + React dashboard, and observe paths for trades and logs.
 
-**Documentation (GitBook source):** [`docs/`](docs/) — vision, architecture, getting started, guides, API, developer notes, and [status & roadmap](docs/status-and-roadmap.md).
+**Documentation (GitBook):** [`docs/`](docs/) — sync via `.gitbook.yaml` (`root: ./docs`, `summary: SUMMARY.md`).
 
 | Quick links | |
 |-------------|--|

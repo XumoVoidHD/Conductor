@@ -32,6 +32,7 @@
 ## Guides
 
 * [Dashboard UI](guides/dashboard.md)
+* [Trading modes (Live / Paper / Backtest)](guides/trading-modes.md)
 * [Bruno API testing](guides/bruno.md)
 * [Traders panel](guides/traders.md)
 * [Troubleshooting](guides/troubleshooting.md)
@@ -45,6 +46,7 @@
 ## For developers
 
 * [Extending Conductor](developers/extending.md)
+* [Frontend (Vite + React)](developers/frontend.md)
 * [Trading node TCP protocol](developers/tcp-protocol.md)
 * [Adding a strategy](developers/adding-a-strategy.md)
 * [Local development tips](developers/local-dev.md)

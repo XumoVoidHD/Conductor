@@ -21,7 +21,12 @@ Conductor/
 │   │   └── db/models/
 │   ├── alembic/
 │   └── bruno/
-├── frontend/               # Static dashboard
+├── frontend/               # Vite + React dashboard (legacy static UI in frontend/legacy/)
+│   ├── src/pages/          # AuthPage, DashboardPage
+│   ├── src/components/     # UI, layout, LogDialog
+│   ├── src/lib/            # api, auth-context, trading-mode-context
+│   ├── Dockerfile          # nginx :5500
+│   └── vite.config.ts      # dev proxy /api → backend
 ├── conductor_node/         # Orchestrator
 │   ├── handlers.py         # Command dispatch
 │   ├── deploy.py           # Spawn/stop/restart/delete

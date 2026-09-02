@@ -6,7 +6,7 @@ This documentation is for:
 
 | Audience | What you’ll find here |
 |----------|------------------------|
-| **Operators / users** | How to run the stack, deploy a strategy, manage nodes, read the Traders panel |
+| **Operators / users** | How to run the stack, deploy a strategy, manage nodes, read the Trades panel, switch Live/Paper/Backtest modes |
 | **API consumers** | Auth, dashboard endpoints, snapshot / traders |
 | **Developers** | Why the system is shaped this way, how control and observe are split, where to change code safely |
 
@@ -63,6 +63,7 @@ Browser / Bruno
 | Understand the product | [Project vision](vision.md) |
 | See what’s done vs planned | [Status & roadmap](status-and-roadmap.md) |
 | Run it locally | [Quickstart](getting-started/quickstart.md) |
+| Dashboard & trading modes | [Dashboard UI](guides/dashboard.md), [Trading modes](guides/trading-modes.md) |
 | Deep system design | [Architecture](architecture/architecture.md) |
 | Why control ≠ observe | [Control vs observe](concepts/control-vs-observe.md) |
 | Call the API | [Auth](api/auth.md), [Dashboard](api/dashboard.md) |

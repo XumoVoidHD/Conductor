@@ -10,7 +10,7 @@ Status legend: **Done** · **Partial** · **Planned** · **Gap** (known hole in 
 
 You can already:
 
-1. Register / login (JWT) via API, Bruno, or the frontend
+1. Register / login (JWT) via API, Bruno, or the **Vite + React** frontend
 2. List strategies from Postgres (SYSTEM globals + owned + shared)
 3. Register a strategy from `strategies/<file>.py` (ADMIN → SYSTEM; USER → owned)
 4. Share a user-owned strategy with another username
@@ -20,8 +20,11 @@ You can already:
 8. Get **unique control ports** per node (multi-user safe)
 9. Persist nodes in Postgres (`trading_nodes`); list merges DB + live Conductor probe
 10. Pull an on-demand **snapshot** (`POST /dashboard/nodes/snapshot`)
-11. List **trader summaries** (`GET /dashboard/traders`) with frontend filters (node / broker)
-12. Run the Docker core stack: postgres, redis, backend, conductor, frontend
+11. List **trader summaries** (`GET /dashboard/traders`) — API + Bruno; UI uses **Trades** panel instead
+12. List **aggregated trades** (`GET /dashboard/trades`) — positions, orders, fills in the dashboard
+13. **Stream node logs** in the UI (WebSocket → Docker `logs -f`, Redis fallback)
+14. Use the **Live / Paper / Backtest** mode switcher in the header (UI state only for Paper/Backtest today)
+15. Run the Docker core stack: postgres, redis, backend, conductor, frontend
 
 Compose: `conductor-core/docker-compose.yml`.
 
@@ -41,7 +44,8 @@ Compose: `conductor-core/docker-compose.yml`.
 | Durable `trading_nodes` | Done | Soft-delete; quota source of truth |
 | Strategy vault | Done | Globals, owned, share, artifact URIs |
 | Bybit testnet deploy | Done | Shared `.env` keys today |
-| Frontend dashboard | Partial | Toasts, polls, Traders table; not production UI |
+| Frontend dashboard | Partial | Vite + React, glass UI, trades + logs; Paper/Backtest not wired to API |
+| Trading mode switcher | Partial | Live / Paper / Backtest tabs; backend routing planned |
 | Conductor registry after restart | Gap | In-memory only; DB rows survive, live control may need redeploy |
 | Bruno collection | Done | `backend/bruno/` |
 
@@ -51,10 +55,12 @@ Compose: `conductor-core/docker-compose.yml`.
 |------------|--------|-------|
 | TCP `snapshot` | Done | Full Nautilus state; offline DB stub |
 | TCP `summary` | Done | Lightweight trader row |
-| `GET /dashboard/traders` | Done | Batch summaries; client-side filters |
+| `GET /dashboard/traders` | Done | Batch summaries; API/Bruno |
+| `GET /dashboard/trades` | Done | Positions / orders / fills for dashboard |
+| Node log WebSocket | Done | `WS /dashboard/nodes/{id}/logs/stream` |
 | Heartbeats | Planned | Auto-detect dead containers without a user command |
-| Redis Streams observe | Planned | Continuous positions / heartbeats |
-| WebSocket live feed | Planned | Frontend subscribe |
+| Redis Streams observe | Partial | Trading node can publish; full UI pipeline incomplete |
+| WebSocket live trades feed | Planned | Push updates instead of poll-only |
 
 ### Credentials & brokers
 
@@ -64,6 +70,8 @@ Compose: `conductor-core/docker-compose.yml`.
 | Per-user broker vault | Planned | Encrypted API keys / profiles |
 | IBKR dockerized Gateway sidecar | Planned | Nautilus Gateway image pattern |
 | Per-user IB login in vault | Planned | Paper / live |
+| Paper mode (Nautilus sandbox) | Planned | UI tab exists; deploy profile TBD |
+| Backtest mode | Planned | UI tab exists; job API TBD |
 
 ### Product polish
 
@@ -73,7 +81,7 @@ Compose: `conductor-core/docker-compose.yml`.
 | Attach / detach / apply_config at runtime | Planned | |
 | Halt button in UI | Planned | API exists |
 | Command/event audit log | Planned | |
-| Production frontend | Planned | |
+| Mode-specific deploy (live vs paper vs backtest) | Planned | |
 | Multi-host / K8s | Planned | |
 
 ---
@@ -100,29 +108,42 @@ Compose: `conductor-core/docker-compose.yml`.
 - [x] Unique ports; drop registry when container missing
 - [ ] Reconcile registry from Docker/DB after Conductor restart
 - [ ] IB Gateway sidecar spawn/teardown
+- [ ] Paper / backtest deploy profiles
 
 ### Trading node
 
 - [x] Bootstrap, brokers (Bybit + IBKR code), TCP including `snapshot` / `summary`
+- [x] Observe log publish to Redis (for log stream fallback)
 - [ ] Runtime attach/detach + apply_config
-- [ ] Optional: Redis subscribe instead of TCP (redesign)
+- [ ] Nautilus sandbox profile for paper mode
+- [ ] Backtest runner integration
+
+### Frontend
+
+- [x] Vite + React dashboard (auth, strategies, nodes, trades, logs)
+- [x] Glassmorphism UI + black/green theme
+- [x] Live / Paper / Backtest mode switcher (UI)
+- [ ] Wire mode to deploy API
+- [ ] Backtest results panel
+- [ ] Halt in UI
 
 ### Observe Phase 2
 
 - [ ] Publish events + Streams + heartbeat
-- [ ] API consumer → WebSocket
-- [ ] Frontend live updates + trader drill-down
+- [ ] WebSocket live feed for trades (beyond log stream)
+- [ ] Frontend live updates without full poll
 
 ---
 
 ## Suggested build order (remaining)
 
-1. Broker vault (encrypted) + migrate Bybit off shared `.env`
-2. IBKR: vaulted login + dockerized Gateway + wire-up
-3. Conductor registry (+ Gateway) reconcile after restart
-4. Zip upload / attach-detach / apply_config (as needed)
-5. Observe Phase 2: heartbeats + Streams → WebSocket
-6. Production frontend
+1. **Paper mode** — Nautilus sandbox on deploy when mode = paper
+2. **Backtest** — job API + results UI
+3. Broker vault (encrypted) + migrate Bybit off shared `.env`
+4. IBKR: vaulted login + dockerized Gateway + wire-up
+5. Conductor registry (+ Gateway) reconcile after restart
+6. Zip upload / attach-detach / apply_config (as needed)
+7. Observe Phase 2: heartbeats + Streams → WebSocket trades feed
 
 ---
 
@@ -130,7 +151,8 @@ Compose: `conductor-core/docker-compose.yml`.
 
 | Gap | Reason |
 |-----|--------|
-| No Streams yet | Control path had to be solid first; Phase-1 TCP summaries unblock the UI without a second bus |
+| Paper/Backtest UI without API | Establish UX and `useTradingMode()` before branching deploy paths |
+| No Streams for trades yet | Control path + TCP trades list had to work first; poll is enough for v1 |
 | Shared Bybit keys | Fastest path to a working dashboard; vault is the correct multi-tenant design |
 | In-memory Conductor registry | Simple and correct for a single orchestrator instance; persistence/reconcile is the next reliability step |
 | Stop keeps quota | Prevents “stop to free slots then spam deploy”; delete is the intentional free |

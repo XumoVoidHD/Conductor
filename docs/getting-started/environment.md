@@ -16,7 +16,7 @@ POSTGRES_DB=conductor
 
 # --- API ---
 ENVIRONMENT=development
-CORS_ORIGINS=http://127.0.0.1:5500,http://localhost:5500
+CORS_ORIGINS=http://127.0.0.1:5500,http://localhost:5500,http://127.0.0.1:5501,http://localhost:5501
 SECRET_KEY=change-me-to-a-long-random-string
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
@@ -59,3 +59,21 @@ In compose, backend/conductor typically override hosts to service names (`postgr
 | `DOCKER_*` | Conductor | Network, volume, publish, image |
 
 Never commit real secrets. Per-user broker vault will replace shared Bybit env — see [Broker credentials](../concepts/broker-credentials.md).
+
+---
+
+## Frontend (build-time)
+
+Used when building the Docker frontend image or `npm run build` (not required for `npm run dev` — Vite proxies `/api`).
+
+Create `frontend/.env` from `frontend/.env.example`:
+
+```env
+VITE_API_BASE=http://127.0.0.1:8000
+```
+
+| Variable | Purpose |
+|----------|---------|
+| `VITE_API_BASE` | Absolute API URL baked into the production bundle |
+
+See [Frontend (Vite + React)](../developers/frontend.md).
