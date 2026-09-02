@@ -12,9 +12,9 @@
 
 ## Login / CORS
 
-- Frontend must call `http://127.0.0.1:8000` (see `frontend/config.js`)  
+- Frontend must call `http://127.0.0.1:8000` (see `frontend/.env` → `VITE_API_BASE`)  
 - `CORS_ORIGINS` must include `http://127.0.0.1:5500`  
-- Hard-refresh after frontend rebuild (`app.js?v=…` cache bust)
+- Hard-refresh after frontend Docker rebuild if assets look stale
 
 ---
 

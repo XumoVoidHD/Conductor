@@ -10,7 +10,7 @@
 | `backend/` | FastAPI |
 | `conductor_node/` | Orchestrator |
 | `trading_node/` | Worker image + runtime |
-| `frontend/` | Static UI |
+| `frontend/` | Vite + React UI |
 | `docs/` | GitBook source |
 
 ---
@@ -19,15 +19,16 @@
 
 1. `docker compose -f conductor-core/docker-compose.yml up -d --build`  
 2. Migrate if needed: `… run --rm backend alembic upgrade head`  
-3. Edit backend / frontend / conductor with bind mounts where compose allows  
-4. Rebuild trading-node image after runtime/TCP changes  
-5. Hit Bruno or http://127.0.0.1:5500  
+3. Edit backend / conductor with bind mounts where compose allows  
+4. Frontend dev: `cd frontend && npm run dev` (hot reload on :5500)  
+5. Rebuild trading-node image after runtime/TCP changes  
+6. Hit Bruno or http://127.0.0.1:5500  
 
 ---
 
 ## Hot tips
 
-- **Frontend cache:** `app.js?v=` query — bump or hard-refresh  
+- **Frontend:** production build via Docker or `npm run build`; legacy vanilla UI in `frontend/legacy/`  
 - **Conductor code:** recreate `conductor` service after orchestrator changes  
 - **Port allocator:** unique host ports require Conductor rebuild; delete old nodes if stuck  
 - **Quota ghosts:** soft-delete via API delete or gone-node path  

@@ -33,7 +33,7 @@ Keep **control** (lifecycle) on Conductor and **observe** (read state) on direct
 
 1. Prefer existing poll + client-side filter for small lists  
 2. Call backend APIs only — never talk to Redis/Docker from the browser  
-3. Match toast / status conventions in `frontend/app.js`
+3. Match toast / status conventions in `frontend/src/pages/DashboardPage.tsx`
 
 ---
 

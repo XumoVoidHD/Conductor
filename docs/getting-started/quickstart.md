@@ -44,7 +44,7 @@ docker compose -f conductor-core/docker-compose.yml up -d
 | redis | control bus | 6379 |
 | backend | FastAPI | **8000** |
 | conductor | orchestrator (docker.sock) | — |
-| frontend | static UI | **5500** |
+| frontend | Vite + React UI | **5500** |
 
 Trading nodes appear only after **deploy** (labels `conductor.role=trading-node`).
 
